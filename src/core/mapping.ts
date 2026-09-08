@@ -1,6 +1,22 @@
 /**
  * Field mapping between AutoGroup v2 Service Summary and the DMS Service Dashboard.
  *
+ * ---------------------------------------------------------------------------------------
+ * MOSTLY SUPERSEDED. Only three symbols in this file are still used:
+ *
+ *     CATEGORIES, dmsCol, type Category      — by formulas.ts, for formula validation
+ *
+ * Everything else — AUTOGROUP_ACTUAL_COL, DMS_ACTUAL_COL, AUTOGROUP_TRACKING_COL,
+ * DMS_BLOCK_OFFSET, DMS_MEASURE_OFFSET, METRIC_MAP, DMS_ONLY_ROWS, AUTOGROUP_ONLY_ROWS,
+ * SECTION_HEADERS, MARGIN_PERCENT_ROWS, RATE_METRICS and the rest — is the hardcoded
+ * column-offset model that `columns.ts` replaced. It is retained only because it
+ * documents the layout these two screens had when the offsets were verified.
+ *
+ * Do not build on it. The engine derives column geometry from each grid's own
+ * colspan-expanded header (see columns.ts, which explains why fixed offsets only ever
+ * worked for one module). A fixed metric list cannot describe a module it has not seen.
+ * ---------------------------------------------------------------------------------------
+ *
  * The two screens use different metric labels and very different column layouts, so
  * the mapping is explicit rather than inferred. Column indices below were verified
  * against live captures under `artifacts/capture/<target>/capture.json`.

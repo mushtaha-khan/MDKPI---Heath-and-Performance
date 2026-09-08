@@ -263,19 +263,7 @@ export function compareTexts(
   };
 }
 
-/** Format a number back to a readable string for the report. */
-export function formatValue(v: number | null, kind: MetricKind): string {
-  if (v === null) return '—';
-  switch (kind) {
-    case 'currency':
-      return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    case 'count':
-      return v.toLocaleString('en-US');
-    case 'hours':
-      return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
-    case 'rate':
-      return `$${v.toFixed(2)}`;
-    case 'percent':
-      return `${v.toFixed(2)}%`;
-  }
-}
+// `formatValue()` lived here: it re-rendered a parsed number as a display string, used only
+// by the superseded core/compare.ts. The current reports show each screen's own rendered text
+// verbatim instead, which is what makes a formatting difference visible rather than hiding it
+// behind a re-format. Removed with that file.
