@@ -1,0 +1,36 @@
+{
+  "name": "Service Summary",
+  "gridHints": ["CUSTOMER PAY", "WARRANTY"],
+
+  "aliases": {
+    "TOTAL LABOUR AND PARTS SALES": "SUBTOTAL LABOUR AND PARTS SALES",
+    "TOTAL LABOUR AND PARTS GROSS": "SUBTOTAL LABOUR AND PARTS GROSS"
+  },
+
+  "ignore": ["LABOR", "PARTS", "TOTALS"],
+
+  "definitional": [
+    "TOTAL L&P SALES",
+    "TOTAL L&P GROSS"
+  ],
+
+  "tolerances": {
+    "EFFECTIVE LABOUR RATE": 0.01,
+    "DISCOUNT PERCENT": 0.01
+  },
+
+  "matchThreshold": 0.82,
+
+  "_notes": [
+    "gridHints picks the metric grid by header text rather than table index, since the",
+    "DMS dashboard renders several smaller summary strips before it.",
+    "aliases map AutoGroup's 'TOTAL L&P ...' onto DMS's 'SUB-TOTAL L&P ...'. Keys and",
+    "values are normalized before matching, which is why they appear expanded here",
+    "(L&P -> LABOUR AND PARTS, SUB-TOTAL -> SUBTOTAL).",
+    "definitional marks rows where the two products compose the figure differently:",
+    "AutoGroup = labour sales + parts sales, DMS additionally includes sublet and nets",
+    "discount. Both are internally self-consistent, so these deltas need a product",
+    "decision rather than a bug ticket.",
+    "ignore drops the section heading rows in the AutoGroup grid."
+  ]
+}

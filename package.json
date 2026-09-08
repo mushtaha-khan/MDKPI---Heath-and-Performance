@@ -1,0 +1,56 @@
+{
+  "name": "my-dealer-kpi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Report automation and validation framework for the My Dealer KPI automotive reporting portal",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "uuid": "11.1.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "recon:login": "node scripts/recon-login.mjs",
+    "recon:roles": "node scripts/recon-roles.mjs",
+    "capture": "node scripts/capture-screens.mjs both",
+    "capture:autogroup": "node scripts/capture-screens.mjs autogroup",
+    "capture:dms": "node scripts/capture-screens.mjs dms",
+    "compare": "tsx src/cli/compare.ts",
+    "grids": "node scripts/inspect-grids.mjs",
+    "verify:report": "node scripts/verify-report.mjs",
+    "verify:gui": "node scripts/verify-gui.mjs 5173",
+    "test:units": "tsx scripts/test-parse.mjs && tsx scripts/test-tolerance.mjs && tsx scripts/test-breakdown.mjs && tsx scripts/test-alignment.mjs && tsx scripts/test-structure.mjs && tsx scripts/test-datetime.mjs && tsx scripts/test-records.mjs",
+    "structure": "tsx scripts/show-structure.mjs",
+    "formulas": "node scripts/extract-formulas.mjs full",
+    "report:html": "tsx src/cli/report.ts",
+    "gui": "tsx src/cli/gui.ts",
+    "suite": "tsx src/cli/suite.ts",
+    "runs": "tsx src/cli/serve.ts",
+    "all": "node scripts/run-all.mjs",
+    "serve": "node scripts/serve-report.mjs",
+    "verify": "npm run capture && npm run compare",
+    "verify:full": "npm run capture && npm run formulas && npm run report:html",
+    "test": "playwright test",
+    "test:reports": "playwright test --project=reports",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report artifacts/playwright-report",
+    "mcp": "npx -y @playwright/mcp@0.0.79 --config ./playwright-mcp.config.json --port 8931",
+    "mcp:smoke": "node scripts/mcp-smoke.mjs 8931",
+    "mcp:install-browser": "npx -y @playwright/mcp@0.0.79 install-browser chromium",
+    "setup": "npm install && npx playwright install chromium && npm run mcp:install-browser"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "24.9.2",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "csv-parse": "7.0.2",
+    "dotenv": "17.4.2",
+    "exceljs": "4.4.0",
+    "zod": "4.4.3"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "_comment": "COPY THIS into .kiro/settings/mcp.json (workspace) — Kiro's permission rules block the agent from writing that path directly. Verified against @playwright/mcp 0.0.79 / Playwright core 1.63.0-alpha: server handshake OK, 57 tools exposed. browser_run_code_unsafe and browser_route* are deliberately NOT auto-approved.",
+
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.79",
+        "--config",
+        "d:/Automation/MyDealerKPI/playwright-mcp.config.json"
+      ],
+      "disabled": false,
+      "autoApprove": [
+        "browser_navigate",
+        "browser_navigate_back",
+        "browser_snapshot",
+        "browser_take_screenshot",
+        "browser_find",
+        "browser_click",
+        "browser_type",
+        "browser_fill_form",
+        "browser_select_option",
+        "browser_hover",
+        "browser_press_key",
+        "browser_wait_for",
+        "browser_resize",
+        "browser_tabs",
+        "browser_generate_locator",
+        "browser_console_messages",
+        "browser_network_requests",
+        "browser_network_request",
+        "browser_cookie_list",
+        "browser_cookie_get",
+        "browser_localstorage_list",
+        "browser_localstorage_get",
+        "browser_sessionstorage_list",
+        "browser_sessionstorage_get",
+        "browser_storage_state",
+        "browser_verify_element_visible",
+        "browser_verify_list_visible",
+        "browser_verify_text_visible",
+        "browser_verify_value",
+        "browser_pdf_save",
+        "browser_handle_dialog",
+        "browser_mouse_wheel"
+      ]
+    }
+  }
+}

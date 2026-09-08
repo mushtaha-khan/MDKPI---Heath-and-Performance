@@ -1,0 +1,27 @@
+node_modules/
+
+# Secrets — never commit real portal credentials
+.env
+.env.*
+!.env.example
+secrets.env
+
+# Playwright MCP persistent browser profile (contains live session cookies)
+.playwright-mcp/
+
+# Generated artifacts
+artifacts/
+test-results/
+playwright-report/
+blob-report/
+*.log
+
+# Auth storage state captured at runtime (contains session tokens)
+storage-state/
+*.storage.json
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+!.vscode/settings.json

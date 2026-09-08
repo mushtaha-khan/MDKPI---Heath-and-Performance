@@ -1,0 +1,42 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "isolated": false,
+    "userDataDir": "d:/Automation/MyDealerKPI/.playwright-mcp/profile",
+    "launchOptions": {
+      "downloadsPath": "d:/Automation/MyDealerKPI/artifacts/downloads"
+    },
+    "contextOptions": {
+      "viewport": { "width": 1920, "height": 1080 },
+      "acceptDownloads": true,
+      "ignoreHTTPSErrors": true
+    }
+  },
+
+  "capabilities": [
+    "core",
+    "core-navigation",
+    "core-tabs",
+    "core-input",
+    "network",
+    "storage",
+    "testing",
+    "vision",
+    "pdf"
+  ],
+
+  "outputDir": "d:/Automation/MyDealerKPI/artifacts/mcp",
+  "saveSession": true,
+  "snapshot": { "mode": "full" },
+  "imageResponses": "allow",
+  "console": { "level": "warning" },
+
+  "timeouts": {
+    "action": 15000,
+    "navigation": 90000,
+    "expect": 15000
+  },
+
+  "testIdAttribute": "data-testid",
+  "codegen": "typescript"
+}
