@@ -14,12 +14,15 @@
     "typecheck": "tsc --noEmit",
     "recon:login": "node scripts/recon-login.mjs",
     "recon:roles": "node scripts/recon-roles.mjs",
+    "health": "node scripts/health/server.mjs",
+    "health:recon": "node scripts/health-recon.mjs",
     "capture": "node scripts/capture-screens.mjs both",
     "capture:autogroup": "node scripts/capture-screens.mjs autogroup",
     "capture:dms": "node scripts/capture-screens.mjs dms",
     "grids": "node scripts/inspect-grids.mjs",
     "verify:report": "node scripts/verify-report.mjs",
     "verify:gui": "node scripts/verify-gui.mjs 5173",
+    "baseline": "node scripts/baseline.mjs",
     "test:units": "tsx scripts/test-parse.mjs && tsx scripts/test-tolerance.mjs && tsx scripts/test-breakdown.mjs && tsx scripts/test-alignment.mjs && tsx scripts/test-structure.mjs && tsx scripts/test-datetime.mjs && tsx scripts/test-records.mjs",
     "structure": "tsx scripts/show-structure.mjs",
     "formulas": "node scripts/extract-formulas.mjs full",
@@ -34,7 +37,10 @@
     "mcp": "npx -y @playwright/mcp@0.0.79 --config ./playwright-mcp.config.json --port 8931",
     "mcp:smoke": "node scripts/mcp-smoke.mjs 8931",
     "mcp:install-browser": "npx -y @playwright/mcp@0.0.79 install-browser chromium",
-    "setup": "npm install && npx playwright install chromium && npm run mcp:install-browser"
+    "setup": "npm install && npx playwright install chromium && npm run mcp:install-browser",
+    "waf": "node scripts/waf-run.mjs",
+    "waf:attack": "node scripts/waf-run.mjs --attack",
+    "waf:full": "node scripts/waf-run.mjs --domains-file domains.txt"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

@@ -66,6 +66,16 @@ export interface TableStructure {
 /** Row counts that almost always mean "one page of results" rather than "all of them". */
 const PAGE_SIZES = [10, 15, 20, 25, 30, 50, 100, 200];
 
+/**
+ * Descriptive columns above which a table is describing records rather than measuring rows.
+ *
+ * Chosen from the gap actually observed across the verified modules: the widest summary
+ * carries 3 descriptive columns (a technician grid with a name, a number and a type), and
+ * the narrowest record listing that describes its records carries 10. Eight sits in the
+ * empty space between them rather than being tuned to either side.
+ */
+const MANY_DESCRIPTIVE_COLUMNS = 8;
+
 /** Column headings that identify a record rather than measure anything. */
 const RECORD_COLUMN = /\bS\.? ?NO\b|\bSR\.? ?NO\b|\bRO ?#|\bINVOICE\b|CUSTOMER INFO|VEHICLE INFO|\bACTIONS?\b|\bNOTES?\b|\bVIN\b|OPEN DATE|\bSTOCK ?#/i;
 
@@ -185,6 +195,28 @@ export function classifyTable(profile: GridProfile): TableStructure {
     detailScore += 3;
     evidence.push(
       `${textColumns} descriptive column(s) against ${numericColumns} numeric — a listing describes records, a summary measures them.`,
+    );
+  } else if (textColumns >= MANY_DESCRIPTIVE_COLUMNS) {
+    /**
+     * Many descriptive columns in absolute terms, whatever sits alongside them.
+     *
+     * The relative test above is the wrong shape when a listing also carries a wide block
+     * of numeric columns. A DMS deal listing describes each deal with fourteen fields —
+     * dates, stock number, vehicle, two personnel names, five milestone timestamps — and
+     * then adds twenty-one general-ledger account columns, most of them $0.00. Fourteen
+     * against twenty-one fails a relative comparison, so the table scored as neither a
+     * summary nor a listing and its 43 records went uncompared.
+     *
+     * Absolute works because the two shapes are far apart in practice: across the modules
+     * verified so far no summary carries more than three descriptive columns, while every
+     * listing that describes its records carries at least ten. A summary identifies a row
+     * with a label; a listing describes it with a dozen fields.
+     */
+    detailScore += 3;
+    evidence.push(
+      `${textColumns} descriptive column(s) describing each row — a summary identifies a row with ` +
+        `its label, so this many descriptive fields means the rows are records being listed, ` +
+        `even though ${numericColumns} numeric column(s) sit alongside them.`,
     );
   }
   // Record-like labels only count as evidence of a listing when the table also *describes*

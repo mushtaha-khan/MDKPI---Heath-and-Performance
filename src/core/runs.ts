@@ -182,7 +182,19 @@ export async function listRuns(
           (m.records?.mismatched ?? 0) > 0 ||
           (m.records?.missing ?? 0) > 0 ||
           (m.rowFormulas?.failed ?? 0) > 0 ||
-          (m.columnChecks?.failed ?? 0) > 0;
+          (m.columnChecks?.failed ?? 0) > 0 ||
+          // Any comparison pass reporting a difference means the run is not clean.
+          //
+          // The checks above cover the grid, the cards, the records and the formulas, but not
+          // the passes that measure something else — corroborating a summary against its own
+          // record listing, in particular. A run whose listing did not aggregate to its own
+          // published total was being badged CLEAN while disagreeing with itself, which is the
+          // most misleading thing this badge could say. Reading the pass table instead of
+          // naming each pass also means a pass added later is covered without this being
+          // revisited.
+          (Array.isArray(m.passes) ? m.passes : []).some(
+            (p: { differences?: number }) => (p.differences ?? 0) > 0,
+          );
 
         // A run that compared nothing has zero mismatches, which would otherwise read as
         // CLEAN — the most misleading badge it could possibly carry. But "no grid paired" is

@@ -5,6 +5,9 @@
  */
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+// Saved modules store their screens as paths; the host comes from KPI_BASE_URL, so the
+// panel needs .env loaded to resolve them into URLs.
+import 'dotenv/config';
 import { startGui } from '../gui/server.js';
 
 const port = Number(process.argv[2] ?? 5173);

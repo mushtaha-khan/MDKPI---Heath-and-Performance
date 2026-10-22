@@ -211,6 +211,267 @@ async function waitForData(page) {
   await page.waitForTimeout(3000);
 }
 
+/**
+ * Select every column before reading the page.
+ *
+ * Both products let the user choose which columns a grid shows, and the setting sticks. So
+ * what gets reconciled depends on whoever last touched that dropdown — and the failure is
+ * silent in the worst way: a run can report "no differences" because the column that
+ * disagreed was not on screen. One DMS technician grid was showing 21 of its 29 columns,
+ * with the whole OVERTIME block deselected, which quietly removed 8 columns from the
+ * comparison.
+ *
+ * Verified read-only before this was written: opening the control, enabling a column and
+ * disabling it again produce no API traffic at all. The selection is applied in the browser
+ * and no preference is saved.
+ *
+ * Only controls whose label reads like "21 COLUMNS" are touched. The same screens carry
+ * filter multiselects — year, make, model, technician, "select to exclude" — and changing
+ * one of those would change the data set rather than the view, so the match is deliberately
+ * narrow.
+ */
+async function selectAllColumns(page) {
+  const outcomes = [];
+
+  const controls = page.locator('p-multiselect');
+  const total = await controls.count().catch(() => 0);
+  if (!total) return outcomes;
+
+  /** Which of them are column pickers, by their label. */
+  const indexes = [];
+  for (let i = 0; i < total; i++) {
+    const label = (await controls.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+    if (/^\d+\s*COLUMNS$/i.test(label)) indexes.push({ i, label });
+  }
+  if (!indexes.length) return outcomes;
+
+  for (const { i, label } of indexes) {
+    const control = controls.nth(i);
+    const readLabel = async () =>
+      (await control.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+    const countOf = (s) => Number((s.match(/\d+/) ?? [0])[0]);
+    const before = label;
+
+    try {
+      await control.scrollIntoViewIfNeeded().catch(() => {});
+      await page.waitForTimeout(300);
+
+      // The caret is the documented trigger but is not always hittable; the label container
+      // is, and a forced click on the wrapper is the last resort.
+      let opened = false;
+      for (const [forced, loc] of [
+        [false, control.locator('.p-multiselect-dropdown, .p-multiselect-trigger').first()],
+        [false, control.locator('.p-multiselect-label-container').first()],
+        [true, control],
+      ]) {
+        try {
+          await loc.click({ timeout: 6000, force: forced });
+          opened = true;
+          break;
+        } catch {
+          /* try the next handle */
+        }
+      }
+      if (!opened) {
+        outcomes.push({ before, after: before, changed: false, note: 'could not open the control' });
+        continue;
+      }
+      await page.waitForTimeout(800);
+
+      const items = page.locator('.p-multiselect-item, .p-multiselect-option, li[role="option"]');
+
+      /**
+       * Enable the deselected options, skipping the group headings.
+       *
+       * The list interleaves selectable columns with the names of the groups they sit under
+       * — LABOR, PARTS, SUBLET, OVERTIME. A heading is not selectable, so it always reads as
+       * unselected, and a loop that simply looked for "the next unselected entry" clicked the
+       * first heading forty times and changed nothing. A real option renders a checkbox; a
+       * heading does not, which is what separates them.
+       *
+       * Deliberately not the header "select all" checkbox either: in PrimeNG that control
+       * toggles, so on a grid where everything is already selected it would deselect the lot
+       * — the same trap the paginator fell into by choosing the largest option without
+       * checking what was already showing.
+       */
+      const readOptions = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll('.p-multiselect-item, .p-multiselect-option, li[role="option"]')].map(
+            (el) => ({
+              selectable: Boolean(el.querySelector('.p-checkbox, [role="checkbox"], input[type="checkbox"]')),
+              selected: el.getAttribute('aria-selected') === 'true' || el.classList.contains('p-highlight'),
+            }),
+          ),
+        );
+
+      const initial = await readOptions();
+      const targets = initial.map((o, idx) => ({ ...o, idx })).filter((o) => o.selectable && !o.selected);
+
+      let clicks = 0;
+      for (const t of targets) {
+        // A click can cascade to sibling options, so confirm this one is still off before
+        // clicking it — otherwise we would switch back off what the cascade just turned on.
+        const now = await readOptions();
+        if (now[t.idx]?.selected) continue;
+        await items.nth(t.idx).click({ timeout: 6000 }).catch(() => {});
+        clicks++;
+        await page.waitForTimeout(250);
+      }
+
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(500);
+      const after = await readLabel();
+
+      // Never end up showing less than we started with.
+      const shrank = countOf(after) < countOf(before);
+      outcomes.push({
+        before,
+        after,
+        changed: after !== before,
+        clicks,
+        ...(shrank ? { note: 'WARNING: fewer columns are selected than before' } : {}),
+      });
+    } catch (e) {
+      await page.keyboard.press('Escape').catch(() => {});
+      outcomes.push({ before, after: before, changed: false, note: `failed: ${e.message.split('\n')[0]}` });
+    }
+  }
+
+  return outcomes;
+}
+
+/**
+ * Show every record before reading the page.
+ *
+ * A screen that paginates its listing renders one page of it, and the capture reads what is
+ * rendered — so a module whose listing runs to 43 records was being reconciled on the 10
+ * that happened to be on the first page. That is not a reconciliation, and worse, it is a
+ * silent one: nothing in the output said the other 33 were never looked at.
+ *
+ * So drive the paginator's own "Rows per page" control to its largest setting first. This
+ * stays read-only: it changes how much of the existing result set the client renders, and
+ * submits nothing.
+ *
+ * Every visible paginator is handled, because a screen can carry more than one listing.
+ * The outcome is recorded per paginator, including the record counts before and after, so
+ * a listing that is *still* truncated afterwards is visible in the artifacts rather than
+ * being mistaken for complete.
+ */
+async function expandPageSize(page) {
+  const outcomes = [];
+  const paginators = page.locator('.p-paginator');
+  const count = await paginators.count().catch(() => 0);
+  if (!count) return outcomes;
+
+  for (let i = 0; i < count; i++) {
+    const pag = paginators.nth(i);
+    if (!(await pag.isVisible().catch(() => false))) continue;
+
+    const readCurrent = async () =>
+      (await pag.locator('.p-paginator-current').first().innerText().catch(() => '')).trim();
+    const before = await readCurrent();
+
+    // PrimeNG renders the control as p-select; older builds use p-dropdown.
+    const combo = pag.locator('p-select, p-dropdown').first();
+    if (!(await combo.count().catch(() => 0))) {
+      outcomes.push({ before, after: before, changed: false, note: 'no rows-per-page control' });
+      continue;
+    }
+
+    const from = (await combo.innerText().catch(() => '')).trim();
+
+    /**
+     * How much of the result set is on screen, from the paginator's own caption:
+     * "1 TO 10 OUT OF 43 RECORDS", "SHOWING 1 TO 25 OF 162 RECORDS".
+     */
+    const state = (() => {
+      const m = /(\d+)\s*(?:TO|-|–)\s*(\d+)\s*(?:OUT\s+)?OF\s*(\d+)/i.exec(before.replace(/,/g, ''));
+      return m ? { to: Number(m[2]), total: Number(m[3]) } : null;
+    })();
+
+    // Already showing everything: leave it alone. The objective is to see every record,
+    // not to select the largest option — and on one screen the largest option offered (20)
+    // was *fewer* than the 24 records already displayed, so choosing it silently dropped
+    // four of them and cut the compared cells from 624 to 380.
+    if (state && state.to >= state.total) {
+      outcomes.push({
+        before,
+        after: before,
+        from,
+        changed: false,
+        note: `already showing all ${state.total} record(s)`,
+      });
+      continue;
+    }
+
+    try {
+      await combo.click({ timeout: 10000 });
+      const options = page.locator('.p-select-option, .p-dropdown-item');
+      await options.first().waitFor({ state: 'visible', timeout: 10000 });
+      const texts = (await options.allInnerTexts()).map((t) => t.trim());
+
+      /**
+       * Choose the smallest setting that shows the whole set, falling back to the largest
+       * on offer when none of them reaches the total.
+       *
+       * Smallest-that-suffices rather than simply largest, because rendering a thousand
+       * rows to show forty-three makes the page slower to settle and the screenshots
+       * harder to read, for no gain.
+       */
+      const floor = Math.max(Number((from || '').replace(/[^\d]/g, '')) || 0, state?.to ?? 0);
+      const need = state?.total ?? Number.POSITIVE_INFINITY;
+
+      let bestIdx = -1;
+      let bestVal = -1;
+      texts.forEach((t, idx) => {
+        const isAll = /^all$/i.test(t);
+        const v = isAll ? Number.POSITIVE_INFINITY : Number(t.replace(/[^\d]/g, ''));
+        if (!Number.isFinite(v) && !isAll) return;
+        // Never select a setting that would show less than is already on screen.
+        if (v <= floor) return;
+        if (bestIdx < 0) {
+          bestIdx = idx;
+          bestVal = v;
+          return;
+        }
+        // Prefer the smallest that covers the total; otherwise the largest available.
+        const bestCovers = bestVal >= need;
+        const covers = v >= need;
+        if (covers && (!bestCovers || v < bestVal)) {
+          bestIdx = idx;
+          bestVal = v;
+        } else if (!covers && !bestCovers && v > bestVal) {
+          bestIdx = idx;
+          bestVal = v;
+        }
+      });
+
+      if (bestIdx < 0) {
+        await page.keyboard.press('Escape').catch(() => {});
+        outcomes.push({
+          before,
+          after: before,
+          from,
+          changed: false,
+          note: 'no option would show more than is already displayed',
+        });
+        continue;
+      }
+
+      await options.nth(bestIdx).click();
+      await page.waitForLoadState('networkidle', { timeout: cfg.navTimeout }).catch(() => {});
+      await page.waitForTimeout(1200);
+      const after = await readCurrent();
+      outcomes.push({ before, after, from, to: texts[bestIdx], changed: after !== before || from !== texts[bestIdx] });
+    } catch (e) {
+      await page.keyboard.press('Escape').catch(() => {});
+      outcomes.push({ before, after: before, from, changed: false, note: `failed: ${e.message.split('\n')[0]}` });
+    }
+  }
+
+  return outcomes;
+}
+
 /** Pull tables, grids, and KPI tiles out of the rendered page. */
 async function extractRendered(page) {
   return page.evaluate(() => {
@@ -695,7 +956,85 @@ async function captureTarget(target) {
     result.redirected = !page.url().includes(target.urlPath);
     console.log(`Final URL: ${result.finalUrl}${result.redirected ? '  (REDIRECTED)' : ''}`);
 
-    let rendered = await extractRendered(page);
+    // Reveal every column before every record: showing a column can add data the grid then
+    // has to fetch, and the pagination step waits for the page to settle afterwards.
+    result.columns = await selectAllColumns(page).catch((e) => {
+      console.log(`(column selection failed: ${e.message.split('\n')[0]})`);
+      return [];
+    });
+    for (const c of result.columns) {
+      console.log(
+        `Columns: ${c.changed ? 'expanded' : 'unchanged'} ${c.before}` +
+          `${c.after !== c.before ? ` -> ${c.after}` : ''}` +
+          `${c.clicks ? `  (${c.clicks} enabled)` : ''}${c.note ? `  (${c.note})` : ''}`,
+      );
+    }
+    if (result.columns.some((c) => c.changed)) await waitForData(page);
+
+    // Show the whole listing before reading it, then wait for the enlarged grid to settle.
+    result.pagination = await expandPageSize(page).catch((e) => {
+      console.log(`(page-size expansion failed: ${e.message.split('\n')[0]})`);
+      return [];
+    });
+    if (result.pagination.length) {
+      for (const p of result.pagination) {
+        console.log(
+          `Paginator: ${p.changed ? 'expanded' : 'unchanged'}` +
+            `${p.from ? ` rows/page ${p.from}${p.to ? ` -> ${p.to}` : ''}` : ''}` +
+            `${p.before ? `  "${p.before}"${p.after && p.after !== p.before ? ` -> "${p.after}"` : ''}` : ''}` +
+            `${p.note ? `  (${p.note})` : ''}`,
+        );
+      }
+      if (result.pagination.some((p) => p.changed)) await waitForData(page);
+    }
+
+    /**
+     * Read the page repeatedly until two consecutive reads agree.
+     *
+     * A single read cannot tell a finished page from one still rendering, and the
+     * difference is not always visible in the row counts. On one capture a DMS grid's
+     * OVERTIME block was read while its header was still settling: the group cell's
+     * colspan was 1 instead of 8 and the leaf headings came back in mixed case rather
+     * than uppercase, because innerText reflects CSS text-transform and the styling had
+     * not been applied yet. Eight columns lost their group and stopped pairing, cutting
+     * the compared cells from 624 to 456 — with nothing in the output to say the read had
+     * been premature.
+     *
+     * Showing every record makes this far more likely, since the page is much heavier, so
+     * the two changes belong together.
+     */
+    const renderSignature = (r) =>
+      JSON.stringify({
+        tiles: r.tileCount,
+        tables: r.tables.map((t) => [
+          t.index,
+          t.rowCount,
+          (t.headerGrid ?? t.headers).map((row) => row.join('\u0001')),
+        ]),
+      });
+
+    let rendered = null;
+    let previous = null;
+    let attempts = 0;
+    let stable = false;
+    for (let i = 0; i < 5; i++) {
+      attempts = i + 1;
+      rendered = await extractRendered(page);
+      const sig = renderSignature(rendered);
+      if (previous !== null && sig === previous) {
+        stable = true;
+        break;
+      }
+      previous = sig;
+      await page.waitForTimeout(2500);
+    }
+    result.renderStable = stable;
+    result.renderAttempts = attempts;
+    console.log(
+      stable
+        ? `Rendering settled after ${attempts} read(s).`
+        : `WARNING: the page was still changing after ${attempts} reads; this capture may be incomplete.`,
+    );
 
     // An empty extraction almost always means the grid was still rendering. Give it a
     // second chance rather than recording a table-less capture that fails downstream

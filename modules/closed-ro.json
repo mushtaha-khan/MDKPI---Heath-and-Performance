@@ -1,0 +1,37 @@
+{
+  "name": "Closed RO",
+
+  "screens": {
+    "autogroup": { "path": "/auto-group-v2/service/closed-ro", "role": "AUTOGROUP" },
+    "dms": { "path": "/service-report/services/listing", "role": "DEALER" }
+  },
+
+  "_notes": [
+    "screens holds paths only. The host comes from KPI_BASE_URL at run time, because this",
+    "file is committed and the tenant hostname is a customer's.",
+    "This module is compared record by record, not grid by grid. Both screens publish it as a",
+    "listing of individual ROs, so the grids pair on row labels but no column inside them",
+    "aligns — which the engine reports as a limitation while the record and analytics passes",
+    "carry the module. That is the correct outcome here, not a failure to configure.",
+    "Last verified: 100 records x 14 columns = 1400 cells, 1184 matched (332 of those only",
+    "after allowing for formatting differences), 154 different, 62 missing. Analytics: 9",
+    "cards compared, 4 different, 7 DMS cards with no counterpart.",
+    "",
+    "COVERAGE LIMIT: this module has 422 records and only 100 are compared. AutoGroup's",
+    "rows-per-page control offers no option above 100, so even with the paginator driven to",
+    "its maximum the listing stops there, while DMS shows all 422. The 322 unmatched DMS",
+    "records are reported as one-side-only rather than as differences. Full coverage needs",
+    "the capture to page through AutoGroup and merge the pages, which it does not yet do.",
+    "",
+    "Encouragingly, widening from 25 to 100 records did not change the match ratio at all:",
+    "84.6% both before and after. The additional records behave like the first 25, so the",
+    "154 differences look like a consistent pattern rather than a long tail.",
+    "",
+    "The differences and the 332 formatting-only matches are the open question on this",
+    "module and want a look before rules are added — a formatting-only match means the two",
+    "screens present the same record inconsistently, which is worth knowing either way.",
+    "",
+    "Note: this module is now the slowest to capture, around 14 minutes, because the DMS",
+    "listing renders all 422 records."
+  ]
+}

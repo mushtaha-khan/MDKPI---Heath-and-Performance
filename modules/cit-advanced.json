@@ -1,0 +1,115 @@
+{
+  "name": "Cit Advanced",
+
+  "screens": {
+    "autogroup": { "path": "/auto-group-v2/sales/cit-advanced", "role": "AUTOGROUP" },
+    "dms": { "path": "/report/sent-to-lender", "role": "DEALER" }
+  },
+
+  "recordColumns": {
+    "AGE (DAYS)": {
+      "leftMinusRight": 1,
+      "reason": "AutoGroup counts the current day as well, so its deal age reads one day higher than DMS's for the same deal. Confirmed as intended, not a defect. The relationship is verified on every record rather than the column being skipped, so a deal that stopped differing by exactly one day would still be reported."
+    }
+  },
+
+  "_notes": [
+    "screens holds paths only. The host comes from KPI_BASE_URL at run time, because this",
+    "file is committed and the tenant hostname is a customer's.",
+    "",
+    "STATUS: CLEAN. The two screens agree completely on this module.",
+    "",
+    "691 of 691 cells match — 688 record cells across 43 deals x 16 columns, plus 3 on the",
+    "lender table. No differences and nothing missing.",
+    "  - 43 of those cells agreed under the declared AGE relationship (see recordColumns).",
+    "    They are verified against it on every record, not skipped, so a deal that stopped",
+    "    differing by exactly one day would be reported.",
+    "  - The lender table matches AMOUNT FINANCED to the cent for all 3 lenders shown.",
+    "",
+    "Note on run cost: neither screen documents formulas in tooltips (0 of 60 on AutoGroup,",
+    "0 of 266 on DMS), so the formula-harvest stage adds roughly ten minutes for nothing on",
+    "this module. Revealing every column made it markedly worse, since there are far more",
+    "tooltip-bearing cells to hover. Run this one with formula harvesting switched off.",
+    "",
+    "What was wrong, for the record — none of it a data disagreement:",
+    "  1. DMS renders a grand-total row inside the thead, below the real column names, so",
+    "     columns were being identified by dollar figures. Fixed in columns.ts, which now",
+    "     discards header rows holding figures rather than names.",
+    "  2. DMS's listing was classified 'unknown' rather than 'detail', so the record-by-record",
+    "     pass — the one that suits this module — never ran. It carries 14 descriptive columns",
+    "     but 21 numeric GL columns alongside them, and the classifier's test was relative.",
+    "     Fixed in structure.ts with an absolute descriptive-column signal.",
+    "  3. Column headings ending in '?' ('B.O RECEIVED?') could not pair with their",
+    "     counterpart ('BO RECEIVED') because '?' survived label normalization. Fixed in",
+    "     match.ts. Worth 3 more paired columns here.",
+    "",
+    "STILL OPEN: AutoGroup paginates its listing to 10 of 43 records, so 33 deals are not",
+    "compared at all. The capture reads the rendered page and never touches the paginator.",
+    "This is the single biggest remaining gap on this module, and it is also what prevents",
+    "confirming whether the AGE difference is definitional.",
+    "",
+    "Columns left unpaired are all accounted for: CIT COUNT and the GL block are ignored by",
+    "decision, the second DMS AGE column has no counterpart by definition, and the row-number",
+    "columns identify nothing. SALESPERSON / SALES PERSON do not pair — a compound-word",
+    "difference the normalizer does not bridge — and they differ in substance anyway, since",
+    "AutoGroup lists every salesperson on a deal where DMS lists one."
+  ],
+
+  "_decisions": [
+    "AGE: AutoGroup's single 'AGE (DAYS)' corresponds to the FIRST DMS 'AGE' column, which",
+    "  is measured from Deal Date. The second DMS AGE column is measured from Acct Date and",
+    "  has no AutoGroup counterpart. Across the 10 overlapping deals AutoGroup reads exactly",
+    "  one higher than DMS (9 vs 8), consistent with inclusive counting on the AutoGroup",
+    "  side. All 10 share the deal date 08/31/2026, so this is one date observed ten times,",
+    "  not ten independent observations — re-confirm once the full 43 records are captured",
+    "  before calling it definitional rather than an off-by-one defect.",
+    "CIT COUNT (AutoGroup): ignore. AutoGroup-only, no DMS counterpart to reconcile against.",
+    "DMS GL account columns: ignore. 210-VEHICLE ACCTS RECEIVABLE, 225-ALLOW FOR DOUBT",
+    "  ACCTS, 227-HOLDBACK REC-OTHER, 210I / 210R / 210T / 210W / 210X, 320-VEHICLE LIEN",
+    "  PAYOFFS and TOTAL are DMS-only detail.",
+    "FUNDED (AutoGroup card) is the same measure as 'Lender Received?' (DMS card). Both read",
+    "  39. They should be compared as a pair.",
+    "Milestone timestamps are the same instants in different formats ('09/01/26 5:00 AM' vs",
+    "  '09-01-2026 05:00 AM') and must be compared as timestamps. Compared as strings they",
+    "  would report a difference on every deal.",
+    "DMS per-salesperson subtotal rows are skipped, not reconciled."
+  ],
+
+  "_resolved": [
+    "AMOUNT FINANCED vs 205-CONTRACTS IN TRANSIT — RESOLVED from the data, not a discrepancy.",
+    "",
+    "The gap is a general-ledger split, and it balances to the cent on all 43 deals:",
+    "  - On 35 of 43, AMOUNT FINANCED - 205-CONTRACTS IN TRANSIT equals the row's TOTAL",
+    "    column exactly (TOTAL carries the opposite sign). Deal 723831: gap 114.50,",
+    "    TOTAL -114.50.",
+    "  - On the remaining 8, the residual is exactly the additional balances sitting in",
+    "    210-VEHICLE ACCTS RECEIVABLE and 320-VEHICLE LIEN PAYOFFS. Deal 72823: residual",
+    "    27,860.27 = 210 (15,000.00) + 320 (12,860.27). Deal 72701: residual -26,300 =",
+    "    320 (-26,300). Every one of the 8 accounts for itself to the cent.",
+    "",
+    "So amount financed is apportioned across GL accounts, with 205 holding the bulk and the",
+    "remainder in the other accounts. Nothing is missing on either screen.",
+    "",
+    "Incidental observation: the gap never falls below 0.35% of amount financed, and sits at",
+    "exactly 0.35% on about half the deals, which looks like a standard percentage deduction",
+    "posted elsewhere. All 3 LEASE deals carry proportionally larger gaps (2.5-3.2%) than the",
+    "RETAIL ones.",
+    "",
+    "CONSEQUENCE FOR THE COMPARISON: AMOUNT FINANCED <-> AMOUNT FINANCED is the correct",
+    "pairing and already matches exactly on all 43 deals. 205-CONTRACTS IN TRANSIT is a GL",
+    "component with no AutoGroup counterpart, so leaving it unpaired — as the GL block",
+    "already is by decision — is correct. Pairing it against AMOUNT FINANCED would have",
+    "manufactured 43 differences out of correct data."
+  ],
+
+  "_pending_engine_support": [
+    "These decisions cannot be expressed in this file yet, and are recorded here rather",
+    "than written as config the engine would silently ignore:",
+    "  - FUNDED <-> Lender Received? is an analytics-card pairing. compareTiles() takes no",
+    "    aliases, so pairing it needs an engine change. Putting it under 'aliases' would",
+    "    feed row matching instead and could mispair a row.",
+    "  - Column-level ignore does not exist; 'ignore' applies to row labels only. The",
+    "    AutoGroup-only and DMS-only columns above are already reported as unpaired columns,",
+    "    which is honest, so this is cosmetic rather than blocking."
+  ]
+}

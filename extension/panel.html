@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Dealership Health</title>
+<style>
+  :root {
+    --bg: #0f1216; --panel: #171b21; --panel2: #1d222a; --line: #272e38;
+    --txt: #e7ebf0; --mut: #8a94a3; --pass: #2ecc71; --warn: #f1c40f;
+    --fail: #e74c3c; --skip: #6b7684; --accent: #e23744; --info: #3498db;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--txt);
+    font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif; display: flex; flex-direction: column; }
+  header { padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .title { font-weight: 700; font-size: 13px; }
+  .title b { color: var(--accent); }
+  .row { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  input.url { flex: 1; min-width: 160px; background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 5px; padding: 6px 8px; font-size: 12px; }
+  .btn { background: var(--accent); color: #fff; border: 0; border-radius: 5px; padding: 6px 12px;
+    font-weight: 700; cursor: pointer; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.stop { background: #555b66; }
+  .btn.stop:not(:disabled) { background: var(--fail); }
+  label.rk { font-size: 11px; color: var(--mut); display: flex; align-items: center; gap: 4px; }
+  label.toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; color: var(--mut); }
+  label.toggle input { display: none; }
+  label.toggle .track { width: 36px; height: 18px; border-radius: 10px; background: var(--panel2);
+    border: 1px solid var(--line); position: relative; transition: background .2s; flex: none; }
+  label.toggle .knob { position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--mut); transition: transform .2s, background .2s; }
+  label.toggle input:checked + .track { background: var(--accent); border-color: var(--accent); }
+  label.toggle input:checked + .track .knob { transform: translateX(18px); background: #fff; }
+  .toggle-label b { color: var(--txt); }
+  .status { font-size: 11px; color: var(--mut); margin-top: 6px; }
+  .dotc { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--skip); margin-right: 5px; }
+  .dotc.on { background: var(--pass); } .dotc.off { background: var(--fail); } .dotc.wait { background: var(--warn); }
+
+  .cols { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; }
+  .cols.single { grid-template-columns: 1fr; }
+  .col { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--line); }
+  .col:last-child { border-right: 0; }
+  .col.hidden { display: none; }
+  .colhead { padding: 7px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .colhead .rname { font-weight: 700; font-size: 12px; }
+  .colhead .rname .d { color: var(--info); } .colhead .rname .a { color: #b07cff; }
+  .colmeta { font-size: 10px; color: var(--mut); margin-top: 2px; }
+  .counts { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+  .chip { padding: 2px 7px; border-radius: 10px; font-weight: 700; font-size: 10px; background: var(--panel2); }
+  .chip.pass { color: var(--pass); } .chip.warn { color: var(--warn); }
+  .chip.fail { color: var(--fail); } .chip.skip { color: var(--skip); } .chip.total { color: var(--txt); }
+  .chip.filt { cursor: pointer; border: 1px solid transparent; }
+  .chip.filt:hover { border-color: var(--line); }
+  .chip.filt.active { border-color: currentColor; background: #0c0f13; }
+  .toolbar { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+  .toolbar .mini { background: var(--panel2); color: var(--mut); border: 1px solid var(--line);
+    border-radius: 5px; padding: 3px 8px; font-size: 10px; cursor: pointer; }
+  .toolbar .mini:hover { color: var(--txt); }
+  .card.filtered-out { display: none; }
+  .bar { height: 3px; background: var(--panel2); } .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .coltabs { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .coltabs button { flex: 1; background: transparent; border: 0; color: var(--mut); padding: 6px; font-size: 11px;
+    cursor: pointer; font-weight: 600; border-bottom: 2px solid transparent; }
+  .coltabs button.active { color: var(--txt); border-bottom-color: var(--accent); }
+  .colbody { flex: 1; overflow: auto; padding: 8px; }
+  .pane { display: none; } .pane.active { display: block; }
+
+  h2.sec { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--txt); margin: 12px 0 5px; font-weight: 700; border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+  h3.subsec { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--mut); margin: 7px 0 4px 10px; font-weight: 600; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; margin-bottom: 5px; overflow: hidden; }
+  .card .head { display: flex; align-items: center; gap: 7px; padding: 6px 8px; cursor: pointer; }
+  .card .head:hover { background: var(--panel2); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--skip); }
+  .dot.pass { background: var(--pass); } .dot.warn { background: var(--warn); }
+  .dot.fail { background: var(--fail); } .dot.run { background: var(--info); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .nm { font-weight: 600; font-size: 11px; } .pth { color: var(--mut); font-size: 10px; word-break: break-all; }
+  .v { margin-left: auto; font-weight: 700; font-size: 10px; }
+  .v.pass { color: var(--pass); } .v.warn { color: var(--warn); } .v.fail { color: var(--fail); }
+  .v.skip { color: var(--skip); } .v.run { color: var(--info); }
+  .cbody { display: none; padding: 0 8px 8px; border-top: 1px solid var(--line); }
+  .card.open .cbody { display: block; }
+  .reason { color: var(--mut); font-size: 10px; margin: 5px 0; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--panel2); color: var(--mut); }
+  .tag.err { color: var(--fail); } .tag.ok { color: var(--pass); }
+  table.api { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+  table.api td { padding: 2px 3px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .st { font-weight: 700; } .st.ok { color: var(--pass); } .st.warn { color: var(--warn); } .st.bad { color: var(--fail); }
+  .url { color: var(--mut); word-break: break-all; }
+  img.shot { width: 100%; border: 1px solid var(--line); border-radius: 5px; margin-top: 6px; }
+  .logbox .line { padding: 1px 0; border-bottom: 1px solid var(--line); color: var(--mut); font-family: ui-monospace, Consolas, monospace; font-size: 10px; }
+  .logbox .line.api-bad { color: var(--fail); } .logbox .line.api-ok { color: var(--txt); } .logbox .line.evt { color: var(--info); }
+  .hint { color: var(--mut); font-size: 11px; padding: 12px 4px; }
+  .hint code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; color: var(--txt); }
+
+  .viewtabs { display: flex; gap: 4px; margin-top: 8px; }
+  .viewtabs .vt { flex: 1; background: var(--panel2); color: var(--mut); border: 1px solid var(--line);
+    border-radius: 5px; padding: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .viewtabs .vt.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+  .view.active { display: flex; }
+
+  .reports-bar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .reports-hint { color: var(--mut); font-size: 11px; }
+  .reports-wrap { flex: 1; display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+  .reports-list { overflow: auto; border-right: 1px solid var(--line); padding: 8px; }
+  .report-item { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+    margin-bottom: 6px; cursor: pointer; }
+  .report-item:hover { background: var(--panel2); }
+  .report-item.active { border-color: var(--accent); }
+  .report-item .ri-role { font-weight: 700; font-size: 12px; }
+  .report-item .ri-role.DEALER { color: var(--info); } .report-item .ri-role.AUTOGROUP { color: #b07cff; }
+  .report-item .ri-when { color: var(--mut); font-size: 11px; }
+  .report-item .ri-counts { font-size: 11px; margin-top: 3px; }
+  .report-detail { overflow: auto; padding: 16px 20px; }
+
+  /* Printable report document */
+  .pdf-doc { background: #fff; color: #111; padding: 24px; border-radius: 8px; max-width: 900px; margin: 0 auto; }
+  .pdf-doc h1 { font-size: 20px; margin: 0 0 4px; } .pdf-doc .sub { color: #555; font-size: 12px; margin-bottom: 14px; }
+  .pdf-doc .totals span { display: inline-block; margin-right: 14px; font-weight: 700; font-size: 13px; }
+  .pdf-doc table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
+  .pdf-doc th, .pdf-doc td { border: 1px solid #ddd; padding: 5px 7px; text-align: left; vertical-align: top; }
+  .pdf-doc th { background: #f3f3f3; }
+  .pdf-doc .vb { font-weight: 700; } .pdf-doc .PASS { color: #1a9e4b; } .pdf-doc .WARN { color: #b8860b; }
+  .pdf-doc .FAIL { color: #c0392b; } .pdf-doc .SKIP { color: #777; }
+  .pdf-doc h2.fail-h { font-size: 15px; margin: 18px 0 6px; color: #c0392b; }
+  .pdf-doc h2.fail-h.ok { color: #1a9e4b; }
+  .pdf-doc h2.all-h { font-size: 15px; margin: 18px 0 6px; color: #222; }
+  .pdf-doc .fail-table tr.failrow td { background: #fdecea; }
+  .pdf-doc .mono { font-family: ui-monospace, Consolas, monospace; font-size: 10px; word-break: break-all; }
+  .pdf-doc hr.hist-sep { border: 0; border-top: 2px dashed #bbb; margin: 18px 0 8px; }
+  .pdf-doc .hist-note { font-size: 11px; color: #777; font-style: italic; margin-bottom: 4px; }
+  .report-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+  .report-actions .btn { font-size: 12px; }
+
+  @media print {
+    body * { visibility: hidden !important; }
+    #print-area, #print-area * { visibility: visible !important; }
+    #print-area { position: absolute; left: 0; top: 0; width: 100%; }
+    .pdf-doc { box-shadow: none; max-width: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="title"><b>My</b>DealerKPI — Dealership Health</div>
+  <div class="row">
+    <input class="url" id="server" value="http://localhost:5174" spellcheck="false" />
+    <label class="rk"><input type="checkbox" id="r-dealer" checked /> DEALER</label>
+    <label class="rk"><input type="checkbox" id="r-autogroup" checked /> AUTOGROUP</label>
+    <button class="btn" id="run">Start</button>
+    <button class="btn stop" id="stop" disabled>Stop</button>
+  </div>
+  <div class="row">
+    <label class="toggle" title="When ON, also click each module/tab's Export PDF & Excel buttons and record their API results.">
+      <input type="checkbox" id="exp-toggle" checked />
+      <span class="track"><span class="knob"></span></span>
+      <span class="toggle-label">Export testing: <b id="exp-state">ON</b></span>
+    </label>
+  </div>
+  <div class="status"><span class="dotc wait" id="conn"></span><span id="meta">not connected</span></div>
+  <div class="viewtabs">
+    <button class="vt active" data-view="live">Live Crawl</button>
+    <button class="vt" data-view="reports">Crawl Reports</button>
+  </div>
+</header>
+
+<div class="view active" id="view-live">
+  <div class="cols" id="cols">
+    <!-- role columns injected here -->
+  </div>
+</div>
+
+<div class="view" id="view-reports">
+  <div class="reports-bar">
+    <button class="mini" id="reports-refresh">Refresh</button>
+    <button class="mini" id="hist-csv">Download API history (CSV)</button>
+    <button class="mini" id="hist-jsonl">API history (JSONL)</button>
+    <span class="reports-hint">Past crawl runs (newest first). Open one, then export. History = every API across all runs, with date/time, for trend analysis.</span>
+  </div>
+  <div class="reports-wrap">
+    <div class="reports-list" id="reports-list"></div>
+    <div class="report-detail" id="report-detail">
+      <div class="hint">Select a run on the left to view its full report.</div>
+    </div>
+  </div>
+</div>
+
+<script src="panel.js"></script>
+</body>
+</html>

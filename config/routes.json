@@ -1,0 +1,65 @@
+{
+  "_notes": [
+    "Fixed report route list for the WAF regression sweep, per MDKPI-7508.",
+    "Routes verified from recon-auth against am-gyh on 2026-09-22 (see artifacts/recon/auth-*.json).",
+    "Paths are relative to the tenant origin, e.g. https://<tenant>.mydealerkpi.com<path>.",
+    "The sweep navigates each route, records every request's HTTP status, and asserts no 403.",
+    "This is a representative cross-section of report pages (grids, dashboards, trends, listings)",
+    "chosen to exercise every asset type and lazy-loaded chunk, not the entire menu."
+  ],
+  "roles": {
+    "AUTOGROUP": {
+      "landing": "/auto-group/dashboard",
+      "routes": [
+        "/auto-group/dashboard",
+        "/auto-group/service/service-summary",
+        "/auto-group/service-report/detailed-labor-parts-report",
+        "/auto-group/service/technician-performance",
+        "/auto-group/service/service-trend",
+        "/auto-group/service/parts-inventory/aging",
+        "/auto-group/service/open-ro",
+        "/auto-group/service/closed-ro",
+        "/auto-group/summary/dealership/monthly",
+        "/auto-group/summary/dealership/service",
+        "/auto-group/summary/dealership/trend",
+        "/auto-group/inventory/vehicle-inventory-dashboard",
+        "/auto-group/inventory/advanced",
+        "/auto-group/inventory/classification",
+        "/auto-group/sales/cit-advanced",
+        "/auto-group/sales/sales-variance",
+        "/auto-group/sales/retail-lease",
+        "/auto-group/sales/trade-ins",
+        "/auto-group/sales/sales-trend",
+        "/auto-group/sales/fni-product",
+        "/auto-group/sales/performance-report/sales-person",
+        "/auto-group/forecast/weekly-forecast",
+        "/auto-group/comparison/sales-summary",
+        "/auto-group/comparison/service-summary"
+      ]
+    },
+    "DEALER": {
+      "landing": "/v2/dealership/sales-dashboard",
+      "routes": [
+        "/v2/dealership/sales-dashboard",
+        "/v2/dealership/vehicle-inventory-dashboard",
+        "/v2/dealership/parts-dashboard",
+        "/v2/dealership/reports/auction-report",
+        "/v2/dealership/reports/customer-listing",
+        "/v2/dealership/vehicle-inventory",
+        "/v2/dealership/vehicle-valuation",
+        "/v2/dealership/reports/used-recon-turnaround",
+        "/v2/dealership/reports/vehicle-sales-recon-metrics",
+        "/v2/report/f-and-i-report/basic",
+        "/v2/report/services/dashboard",
+        "/v2/dealership/service-report/services/listing",
+        "/v2/report/customer-sales-services-map",
+        "/v2/report/service-appointment/appointment",
+        "/v2/dealership/app-dashboard/financial-statement",
+        "/v2/report/appointment-recalls",
+        "/v2/payroll/sales-commissionable-comp",
+        "/v2/dealership/report/crm",
+        "/v2/sales/unwind-deals"
+      ]
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "_notes": [
+    "The 44 WAF post-enablement test cases from MDKPI-7508.",
+    "The story has no separate acceptance-criteria field; the 'expected' text IS the criterion.",
+    "'automation' classifies each case for THIS framework:",
+    "  auto    - the runner executes it and produces status-code + screenshot evidence",
+    "  attack  - the runner executes it, but ONLY in the isolated last step (WAF-38/39)",
+    "  manual  - cannot be produced from this machine (geo/network origin, email, real devices,",
+    "            WAF console, or a pre-WAF baseline that does not exist); reported as handoff",
+    "Every case appears in the report regardless of class, so nothing is silently dropped."
+  ],
+  "cases": [
+    { "id": "WAF-01", "group": "Page loading and routing", "title": "Login page loads", "steps": "Open the login URL in a fresh browser", "expected": "Page loads fully; no 403 in Network tab", "automation": "auto" },
+    { "id": "WAF-02", "group": "Page loading and routing", "title": "All static assets load", "steps": "Load a report page; check every JS/CSS/Font/Img request", "expected": "Every asset returns 200/304; no 403", "automation": "auto" },
+    { "id": "WAF-03", "group": "Page loading and routing", "title": "All report pages load", "steps": "Open every report page in the fixed route list", "expected": "Each page renders; no 403 on any asset or route", "automation": "auto" },
+    { "id": "WAF-04", "group": "Page loading and routing", "title": "Deep link on page refresh", "steps": "Open a report, reload it (F5)", "expected": "Same page reloads; not blocked or redirected", "automation": "auto" },
+    { "id": "WAF-05", "group": "Page loading and routing", "title": "Direct URL in new tab", "steps": "Open a deep report URL directly in a new context while logged in", "expected": "Page opens correctly", "automation": "auto" },
+    { "id": "WAF-06", "group": "Page loading and routing", "title": "Browser back/forward", "steps": "Navigate through 5+ pages, then go back and forward", "expected": "Navigation works; no blocked requests", "automation": "auto" },
+    { "id": "WAF-07", "group": "Page loading and routing", "title": "Lazy-loaded chunks", "steps": "Navigate to pages that load code on demand; watch console", "expected": "Chunks load; no 'failed to load chunk' errors", "automation": "auto" },
+    { "id": "WAF-08", "group": "Page loading and routing", "title": "All dealership subdomains", "steps": "Open multiple tenant subdomains", "expected": "All load the same as before WAF", "automation": "auto", "note": "In the dry run this is the single am-gyh tenant; the full run covers all 133 domains." },
+    { "id": "WAF-09", "group": "Page loading and routing", "title": "Existing trailing-slash behaviour", "steps": "Open a page URL with a trailing slash", "expected": "Behaviour matches pre-WAF (known 404 defect); WAF does not return 403", "automation": "auto" },
+
+    { "id": "WAF-10", "group": "URLs and query strings", "title": "Filters in URL", "steps": "Apply filters so they appear in the URL, then refresh", "expected": "Page reloads with filters intact; no 403", "automation": "auto" },
+    { "id": "WAF-11", "group": "URLs and query strings", "title": "Long URL", "steps": "Request a URL with many query params (max filters/dealers/date ranges)", "expected": "Page loads; not blocked by the URL-size rule", "automation": "auto" },
+    { "id": "WAF-12", "group": "URLs and query strings", "title": "Special characters in URL", "steps": "Filter with values like O'Brien, A&B Motors, 50% off, <test>, --", "expected": "Page loads; no 403 from the SQLi or XSS rules", "automation": "auto", "note": "Benign special chars in query params — distinct from the WAF-38/39 attack payloads." },
+    { "id": "WAF-13", "group": "URLs and query strings", "title": "Shared report link", "steps": "Open a filtered report link in a separate logged-in context", "expected": "Opens correctly", "automation": "auto" },
+    { "id": "WAF-14", "group": "URLs and query strings", "title": "Encoded characters", "steps": "Request URLs with %20, %27, %3C and similar encoded values", "expected": "Page loads", "automation": "auto" },
+
+    { "id": "WAF-15", "group": "Authentication flows", "title": "Login and logout", "steps": "Log in and log out several times", "expected": "Works normally", "automation": "auto" },
+    { "id": "WAF-16", "group": "Authentication flows", "title": "Password reset link", "steps": "Request a reset email and click the link", "expected": "Reset page opens; token not blocked", "automation": "manual", "reason": "Requires mailbox access." },
+    { "id": "WAF-17", "group": "Authentication flows", "title": "Invite or activation link", "steps": "Click a new-user invite link from email", "expected": "Page opens and the flow completes", "automation": "manual", "reason": "Requires mailbox access." },
+    { "id": "WAF-18", "group": "Authentication flows", "title": "Links opened via Outlook/Gmail", "steps": "Open emailed links from Outlook Safe Links and Gmail", "expected": "Link works; scanners don't trigger a block or use up the token", "automation": "manual", "reason": "Requires mailbox + email security tooling." },
+    { "id": "WAF-19", "group": "Authentication flows", "title": "SSO or redirect callbacks (if used)", "steps": "Complete any login that redirects back with a long query string", "expected": "Callback page loads", "automation": "manual", "reason": "No SSO observed on this portal; verify if SSO exists." },
+    { "id": "WAF-20", "group": "Authentication flows", "title": "Session expiry", "steps": "Let a session go idle until it expires, then act", "expected": "Redirected to login properly; no 403 page", "automation": "auto", "note": "Simulated by clearing the session token rather than a real idle wait." },
+
+    { "id": "WAF-21", "group": "Location and network access", "title": "Access from US", "steps": "Access via a US IP", "expected": "Full access", "automation": "manual", "reason": "Requires US-based egress." },
+    { "id": "WAF-22", "group": "Location and network access", "title": "Access from Pakistan office", "steps": "Access from the office network", "expected": "Full access (team isn't geo-blocked)", "automation": "manual", "reason": "Requires the office network origin." },
+    { "id": "WAF-23", "group": "Location and network access", "title": "Access via OpenVPN", "steps": "Connect through the company VPN", "expected": "Full access; not flagged as anonymous/VPN", "automation": "manual", "reason": "Requires the company VPN origin." },
+    { "id": "WAF-24", "group": "Location and network access", "title": "Home internet (team)", "steps": "Access from home ISPs in Karachi", "expected": "Full access", "automation": "manual", "reason": "Requires home ISP origins." },
+    { "id": "WAF-25", "group": "Location and network access", "title": "Mobile data", "steps": "Access from a phone on 4G", "expected": "Full access", "automation": "manual", "reason": "Requires mobile carrier origin." },
+    { "id": "WAF-26", "group": "Location and network access", "title": "Blocked region (if geo rule set)", "steps": "Access from a country outside the allowed list", "expected": "Blocked with a clean block page, not a blank screen", "automation": "manual", "reason": "Requires egress from a blocked region." },
+
+    { "id": "WAF-27", "group": "Rate limiting and heavy usage", "title": "Heavy page load", "steps": "Open the heaviest dashboard / multi-rooftop view", "expected": "All assets load; no 403 from rate limits", "automation": "auto" },
+    { "id": "WAF-28", "group": "Rate limiting and heavy usage", "title": "Rapid navigation", "steps": "Click through 20+ pages quickly", "expected": "No throttling or blocking", "automation": "auto" },
+    { "id": "WAF-29", "group": "Rate limiting and heavy usage", "title": "Many users on one IP", "steps": "8-10 team members use the app at once from one office IP", "expected": "No one gets blocked (simulates a dealership office)", "automation": "manual", "reason": "Needs distinct real users; single-IP automation misrepresents this signal." },
+    { "id": "WAF-30", "group": "Rate limiting and heavy usage", "title": "Repeated refresh", "steps": "Refresh a page 30+ times in a minute", "expected": "Behaves per the rate-limit rule; any block clears after the window", "automation": "auto" },
+
+    { "id": "WAF-31", "group": "Browsers, devices and tools", "title": "Chrome, Edge, Safari, Firefox", "steps": "Log in and open reports in each browser", "expected": "Works in all", "automation": "auto", "note": "Automates Chromium, Firefox, WebKit (Safari engine). Real Edge/Safari are manual." },
+    { "id": "WAF-32", "group": "Browsers, devices and tools", "title": "Incognito / cleared cache", "steps": "Open the app with no cache", "expected": "All assets download without blocks", "automation": "auto" },
+    { "id": "WAF-33", "group": "Browsers, devices and tools", "title": "Mobile browsers", "steps": "Open in Safari (iOS) and Chrome (Android)", "expected": "Works normally", "automation": "manual", "reason": "Requires real mobile devices; emulation is not device testing." },
+    { "id": "WAF-34", "group": "Browsers, devices and tools", "title": "Mobile app webviews", "steps": "Use the app screens that open web pages", "expected": "Loads normally; not flagged as a bot", "automation": "manual", "reason": "Requires the mobile app." },
+    { "id": "WAF-35", "group": "Browsers, devices and tools", "title": "PDF/print/export features", "steps": "Use an export that renders the page headlessly", "expected": "Export completes; headless browser not blocked", "automation": "auto", "note": "Runner itself is headless Chromium; a clean sweep is direct evidence headless isn't blocked." },
+    { "id": "WAF-36", "group": "Browsers, devices and tools", "title": "Uptime monitoring", "steps": "Check Grafana / external uptime checks on the frontend URL", "expected": "Checks still pass; monitor not blocked as a bot", "automation": "manual", "reason": "Requires Grafana / monitoring access." },
+    { "id": "WAF-37", "group": "Browsers, devices and tools", "title": "Automated test scripts", "steps": "Run the Selenium/Playwright suite", "expected": "Runs normally; not blocked by bot rules", "automation": "auto", "note": "This runner IS the Playwright automation; a completed clean run is the evidence." },
+
+    { "id": "WAF-38", "group": "Block handling and logging", "title": "Block page appearance", "steps": "Trigger a block on purpose, e.g. ?q=<script>alert(1)</script>", "expected": "Clean, branded block page with no technical details exposed", "automation": "attack" },
+    { "id": "WAF-39", "group": "Block handling and logging", "title": "Malicious input blocked", "steps": "Try SQLi, XSS, path traversal (../../etc/passwd) in the URL", "expected": "Blocked with 403", "automation": "attack" },
+    { "id": "WAF-40", "group": "Block handling and logging", "title": "WAF logging", "steps": "After WAF-38/39, check the WAF logs", "expected": "Each block logged with rule name, IP, URL and time", "automation": "manual", "reason": "Requires WAF console access; captured 403 responses attached for whoever has it." },
+    { "id": "WAF-41", "group": "Block handling and logging", "title": "False-positive traceability", "steps": "For any unexpected 403, find the log entry", "expected": "Rule ID identified and shared with dev for an exception", "automation": "manual", "reason": "Requires WAF console access; runner records every 403 with full headers as input." },
+
+    { "id": "WAF-42", "group": "Performance and regression", "title": "Page load time", "steps": "Measure load time on 5 heavy report pages vs the pre-WAF baseline", "expected": "No noticeable increase (under ~50 ms difference)", "automation": "manual", "reason": "No pre-WAF baseline exists in the repo; runner records current load times so a future delta is possible, but the comparison cannot be made now." },
+    { "id": "WAF-43", "group": "Performance and regression", "title": "Caching still works", "steps": "Load a page twice; check the Network tab", "expected": "Second load serves assets from cache (304 or cache)", "automation": "auto" },
+    { "id": "WAF-44", "group": "Performance and regression", "title": "Full smoke test", "steps": "Run the standard regression suite", "expected": "No new failures compared to pre-WAF", "automation": "manual", "reason": "The repo's npm test points at a non-existent Playwright config; 'the suite' here is the .mjs scripts + test:units, run separately." },
+
+    { "id": "ASSET-01", "group": "Asset integrity", "title": "Images and static assets load", "steps": "On each report module, check every first-party image/js/css/font request and every rendered <img>", "expected": "No broken images; no 403/404 on any asset", "automation": "auto", "note": "Added per full-run request: verify assets across modules after WAF testing." },
+    { "id": "EXPORT-01", "group": "Exports", "title": "Excel / PDF export", "steps": "On modules exposing an export/print control, trigger it and validate the downloaded file", "expected": "Export generates, downloads, is non-empty, and has a valid XLSX/PDF/CSV signature", "automation": "auto", "note": "Added per full-run request: verify Excel and PDF exports. Deep layout/content review is manual on the saved file." }
+  ]
+}

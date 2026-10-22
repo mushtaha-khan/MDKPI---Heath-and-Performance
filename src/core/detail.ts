@@ -45,6 +45,18 @@ export interface DetailCheck {
   expected: number;
   delta: number;
   tolerance: number;
+  /**
+   * How a declared composition difference was applied, when one was. Present whether the
+   * relationship held or not, so an adjustment is never silent.
+   */
+  adjustment?: {
+    reason: string;
+    /** The raw sum of the column, before the declared adjustment. */
+    rawAggregate: number;
+    /** Columns removed from and added to it, with the amounts involved. */
+    minus: Array<{ column: string; amount: number }>;
+    plus: Array<{ column: string; amount: number }>;
+  } | null;
   verdict: Verdict;
 }
 
@@ -171,11 +183,23 @@ function assessDetailView(
 /**
  * Sum each numeric column of a detail listing and check it against the summary's total row.
  *
+ * Words that say "everything" rather than naming a measure. Dropped before two column names
+ * are compared, so that "TOTAL GROSS" and "GROSS" are recognised as the same measure while a
+ * qualifier such as "MISC" or "LABOR" still distinguishes a component from the whole.
+ */
+const EVERYTHING_TOKENS = new Set(['TOTAL', 'TOTALS', 'ALL', 'GRAND', 'SUM', 'OVERALL']);
+
+/**
  * Columns are tied to the summary by name. A listing column called "TOTAL SALE" corroborates
  * a summary column about sales; where no summary column corresponds, the aggregate is simply
  * not checked rather than being forced onto the nearest candidate.
  */
-function corroborate(view: DetailView, detail: GridProfile, summary: GridProfile): DetailCheck[] {
+function corroborate(
+  view: DetailView,
+  detail: GridProfile,
+  summary: GridProfile,
+  declared: Record<string, { minusColumns?: string[]; plusColumns?: string[]; reason: string }> = {},
+): DetailCheck[] {
   const checks: DetailCheck[] = [];
 
   const totalRow = findGrandTotalRow(summary.normalized);
@@ -201,6 +225,14 @@ function corroborate(view: DetailView, detail: GridProfile, summary: GridProfile
   const header = detailGrid.at(-1) ?? [];
   const width = detail.table.rows.reduce((m, r) => Math.max(m, r.length), 0);
 
+  /**
+   * Aggregate every column first.
+   *
+   * Two passes rather than one, because a declared composition difference refers to another
+   * column of the same listing — "this total includes miscellaneous sales, the summary's does
+   * not" — and that column's aggregate has to already be in hand when the check is evaluated.
+   */
+  const aggregates: Array<{ name: string; sum: number; counted: number; sample: string }> = [];
   for (let c = 0; c < width; c++) {
     if (c === detail.geometry.labelColumn) continue;
     const colName = (header[c] ?? '').trim();
@@ -216,35 +248,109 @@ function corroborate(view: DetailView, detail: GridProfile, summary: GridProfile
       counted++;
       if (!sample) sample = cell.raw;
     }
-    // A column has to be substantially populated to be worth aggregating.
-    if (counted < Math.max(3, detail.table.rows.length / 2)) continue;
+    aggregates.push({ name: colName, sum, counted, sample });
+  }
 
-    // Tie it to a summary column by name. Require a strong match: a wrong pairing here
-    // manufactures a difference out of nothing.
-    const normalized = normalizeLabel(colName);
-    let best: { s: (typeof summaryColumns)[number]; score: number } | null = null;
-    for (const s of summaryColumns) {
-      const score = tokenOverlap(normalized, normalizeLabel(s.name));
-      if (!best || score > best.score) best = { s, score };
+  const aggregateByName = new Map(aggregates.map((a) => [normalizeLabel(a.name), a]));
+  const declaredByName = new Map(Object.entries(declared).map(([k, v]) => [normalizeLabel(k), v]));
+
+  {
+    /**
+     * Tie it to a summary column by measure, not by name similarity.
+     *
+     * Token overlap cannot tell a component from the whole, because the thing that makes a
+     * column a component is the extra word: "MISC SALE" against "SALES" scores 0.67 and
+     * sailed past a 0.5 threshold, so the misc sales of 71 records were summed and checked
+     * against total sales. The result was a confident 7,683 discrepancy that meant nothing.
+     *
+     * The test is asymmetric, because the asymmetry is the whole point: a component carries
+     * its narrowing word on the *listing* side. So every qualifying word in the listing
+     * column must also appear in the summary column, while the summary may carry extra words
+     * of its own — those describe the report's scope, which every row shares, rather than
+     * narrowing the measure.
+     *
+     *   "MISC SALE"  vs "SALES"          MISC is extra on the listing side  -> declined
+     *   "LABOR SALE" vs "SALES"          LABOR is extra on the listing side -> declined
+     *   "TOTAL SALE" vs "OPEN RO SALES"  OPEN RO is scope on the summary    -> accepted
+     *   "TOTAL GROSS" vs "GROSS"         same measure                       -> accepted
+     *
+     * Words that merely say "everything" are dropped from both sides first, so TOTAL does
+     * not count as a qualifier.
+     *
+     * Anything ambiguous is declined rather than guessed — if two summary columns both fit,
+     * neither is used. Fewer checks that can be trusted beat more that cannot, because a
+     * wrong check here invents a finding out of correct data.
+     */
+    const qualifiersOf = (name: string) =>
+      new Set(
+        normalizeLabel(name)
+          .split(' ')
+          .filter((t) => t && !EVERYTHING_TOKENS.has(t)),
+      );
+    const listingCoveredBySummary = (listing: string, summaryName: string) => {
+      const A = qualifiersOf(listing);
+      const B = qualifiersOf(summaryName);
+      if (!A.size || !B.size) return false;
+      for (const t of A) if (!B.has(t)) return false;
+      return true;
+    };
+
+    for (const agg of aggregates) {
+      const colName = agg.name;
+      const sample = agg.sample;
+      // A column has to be substantially populated to be worth aggregating.
+      if (agg.counted < Math.max(3, detail.table.rows.length / 2)) continue;
+
+      const candidates = summaryColumns.filter((s) => listingCoveredBySummary(colName, s.name));
+      if (candidates.length !== 1) continue;
+      const best = { s: candidates[0]!, score: 1 };
+
+      /**
+       * Apply a declared composition difference, when the module states one.
+       *
+       * The adjusted figure is what gets checked, and the adjustment travels with the result
+       * — the raw sum, and every column moved in or out — so the reader can see exactly what
+       * was allowed for. A declared relationship that stops holding still fails.
+       */
+      const decl = declaredByName.get(normalizeLabel(colName));
+      const minus: Array<{ column: string; amount: number }> = [];
+      const plus: Array<{ column: string; amount: number }> = [];
+      let sum = agg.sum;
+      if (decl) {
+        for (const name of decl.minusColumns ?? []) {
+          const other = aggregateByName.get(normalizeLabel(name));
+          if (!other) continue;
+          sum -= other.sum;
+          minus.push({ column: other.name, amount: Number(other.sum.toFixed(4)) });
+        }
+        for (const name of decl.plusColumns ?? []) {
+          const other = aggregateByName.get(normalizeLabel(name));
+          if (!other) continue;
+          sum += other.sum;
+          plus.push({ column: other.name, amount: Number(other.sum.toFixed(4)) });
+        }
+      }
+
+      const kind = inferKind(colName, sample);
+      // The aggregate carries the rounding of every row it summed, so the tolerance has to
+      // scale with the number of rows rather than being a single cell's allowance.
+      const tolerance = precisionTolerance(sample, best.s.raw, kind) * Math.max(1, agg.counted);
+      const delta = Number((sum - best.s.value).toFixed(4));
+
+      checks.push({
+        detailColumn: colName,
+        summaryRow: totalRow.label,
+        summaryColumn: best.s.name,
+        aggregate: Number(sum.toFixed(4)),
+        expected: best.s.value,
+        delta,
+        tolerance: Number(tolerance.toFixed(4)),
+        adjustment: decl
+          ? { reason: decl.reason, rawAggregate: Number(agg.sum.toFixed(4)), minus, plus }
+          : null,
+        verdict: Math.abs(delta) <= tolerance ? 'match' : 'mismatch',
+      });
     }
-    if (!best || best.score < 0.5) continue;
-
-    const kind = inferKind(colName, sample);
-    // The aggregate carries the rounding of every row it summed, so the tolerance has to
-    // scale with the number of rows rather than being a single cell's allowance.
-    const tolerance = precisionTolerance(sample, best.s.raw, kind) * Math.max(1, counted);
-    const delta = Number((sum - best.s.value).toFixed(4));
-
-    checks.push({
-      detailColumn: colName,
-      summaryRow: totalRow.label,
-      summaryColumn: best.s.name,
-      aggregate: Number(sum.toFixed(4)),
-      expected: best.s.value,
-      delta,
-      tolerance: Number(tolerance.toFixed(4)),
-      verdict: Math.abs(delta) <= tolerance ? 'match' : 'mismatch',
-    });
   }
 
   return checks;
@@ -271,6 +377,14 @@ export interface ModeInputs {
   /** The summary grid actually compared on each side, when one was. */
   comparedLeft: GridProfile | null;
   comparedRight: GridProfile | null;
+  /**
+   * Declared composition differences between a listing column and the summary total it would
+   * otherwise reproduce, keyed by listing column name.
+   */
+  corroboration?: Record<
+    string,
+    { minusColumns?: string[]; plusColumns?: string[]; reason: string }
+  >;
 }
 
 /**
@@ -309,7 +423,7 @@ export function decideMode(inputs: ModeInputs): ModeDecision {
       const detail = profiles.find((p) => p.table.index === structure.index);
       if (!detail) continue;
 
-      const checks = corroborate(view, detail, summary);
+      const checks = corroborate(view, detail, summary, inputs.corroboration ?? {});
       if (!checks.length) {
         view.usable = false;
         view.why +=

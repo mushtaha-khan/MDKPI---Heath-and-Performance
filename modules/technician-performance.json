@@ -1,0 +1,20 @@
+{
+  "name": "Technician Performance",
+
+  "screens": {
+    "autogroup": { "path": "/auto-group-v2/service/technician-performance", "role": "AUTOGROUP" },
+    "dms": { "path": "/service-report/services/technicians", "role": "DEALER" }
+  },
+
+  "_notes": [
+    "screens holds paths only. The host comes from KPI_BASE_URL at run time, because this",
+    "file is committed and the tenant hostname is a customer's.",
+    "No matching rules: this module aligns entirely on automatic matching. Rows are",
+    "technicians, matched by name similarity — one screen renders a technician as",
+    "'#1 HERIBERTO XAVIER AVILA (4158) I' and the other as 'HERIBERTO AVILA 4158', which the",
+    "normalizer and token-set similarity handle without aliases.",
+    "Last verified: 624/624 value cells matched, no differences. If a future run reports",
+    "far fewer than 624 cells, the column geometry stopped resolving — check the grid's",
+    "header rows rather than adding tolerances."
+  ]
+}

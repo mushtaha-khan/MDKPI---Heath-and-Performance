@@ -101,21 +101,62 @@ export function deriveGeometry(headerGrid: string[][], rows: string[][]): GridGe
    * misalignment this is meant to repair. A subtotal row can only ever have fewer cells
    * than a data row, so the maximum is the honest figure.
    */
-  const bodyWidth = rows.reduce((max, r) => Math.max(max, r.length), 0) || (headerGrid[0]?.length ?? 0);
+  /**
+   * Discard header rows that are really totals rows.
+   *
+   * Some screens render a grand-total row inside the `thead`, below the column names. The
+   * deepest header row is what column matching works from, so the columns end up
+   * identified by figures — a DMS lender table headed
+   * "SHOW ALL (43) | $1,259,141.76 | $1,244,125.23" instead of
+   * "BANK NAME | AMOUNT FINANCED | GL". Nothing can then align to the other screen by
+   * name, and the whole grid goes uncompared.
+   *
+   * The test is deliberately narrow. A cell only counts as a figure if it looks like
+   * money or a formatted quantity — a currency symbol, thousands separator, or decimal
+   * point. A bare integer does not count, because a header row can legitimately be years
+   * ("2024", "2025") and dropping that would destroy a real grid. A row also needs at
+   * least three filled cells before it can be judged, and the last surviving row is
+   * never dropped: a grid with nowhere to read names from is worse than one reading them
+   * from an odd row.
+   */
+  const looksLikeAmount = (s: string) => {
+    const t = (s ?? '').trim();
+    if (!t || !/\d/.test(t)) return false;
+    return /[$€£]/.test(t) || /\d,\d{3}/.test(t) || /\d\.\d/.test(t);
+  };
 
-  let grid = headerGrid;
-  const headerWidth = headerGrid[0]?.length ?? 0;
+  let hdr = headerGrid;
+  if (headerGrid.length > 1) {
+    const kept = headerGrid.filter((row) => {
+      const filled = row.map((c) => (c ?? '').trim()).filter(Boolean);
+      if (filled.length < 3) return true;
+      return filled.filter(looksLikeAmount).length / filled.length < 0.6;
+    });
+    if (kept.length && kept.length < headerGrid.length) {
+      notes.push(
+        `Discarded ${headerGrid.length - kept.length} header row(s) holding figures rather ` +
+          'than column names; a total row rendered inside the header would otherwise be ' +
+          'read as the column headings.',
+      );
+      hdr = kept;
+    }
+  }
+
+  const bodyWidth = rows.reduce((max, r) => Math.max(max, r.length), 0) || (hdr[0]?.length ?? 0);
+
+  let grid = hdr;
+  const headerWidth = hdr[0]?.length ?? 0;
 
   if (headerWidth > bodyWidth) {
     const surplus = headerWidth - bodyWidth;
     // Columns blank in every header row are spacers and are the ones to drop.
     const blanks: number[] = [];
     for (let c = 0; c < headerWidth; c++) {
-      if (headerGrid.every((row) => !(row[c] ?? '').trim())) blanks.push(c);
+      if (hdr.every((row) => !(row[c] ?? '').trim())) blanks.push(c);
     }
     const drop = new Set(blanks.slice(0, surplus));
     if (drop.size === surplus) {
-      grid = headerGrid.map((row) => row.filter((_, c) => !drop.has(c)));
+      grid = hdr.map((row) => row.filter((_, c) => !drop.has(c)));
       notes.push(
         `Header had ${headerWidth} columns against ${bodyWidth} in the body; dropped ` +
           `${surplus} blank spacer column(s) at ${[...drop].join(', ')} to realign.`,

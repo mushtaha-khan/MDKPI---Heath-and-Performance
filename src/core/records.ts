@@ -24,9 +24,11 @@
 import {
   compareTexts,
   compareValues,
+  isBlankText,
   normalizeText,
   parseCell,
   precisionTolerance,
+  round,
   type Verdict,
 } from './normalize.js';
 import { inferKind, normalizeLabel, similarity } from './match.js';
@@ -91,6 +93,12 @@ export interface RecordCell {
    * is not read as a data difference.
    */
   composition: string | null;
+  /**
+   * Set when this cell agreed only because a declared definitional difference was allowed
+   * for, carrying the stated reason. Kept distinct from `formattingOnly`, which is about
+   * presentation; this is about the two products measuring different things on purpose.
+   */
+  definitional?: string | null;
   verdict: Verdict;
 }
 
@@ -116,6 +124,11 @@ export interface RecordComparison {
     matched: number;
     /** Of `matched`, how many agreed only after allowing for formatting or rounding. */
     formattingOnly: number;
+    /**
+     * Of `matched`, how many agreed only because a declared definitional difference was
+     * allowed for. Reported separately so an adjustment is never invisible.
+     */
+    definitional: number;
     mismatched: number;
     missing: number;
     numericCells: number;
@@ -417,7 +430,12 @@ function pairColumns(
  * list of figures on its total; a cell holding names or codes on those, with amounts and
  * annotations set aside; and only a plain cell as plain text.
  */
-function compareCell(cp: RecordColumnPair, leftRow: string[], rightRow: string[]): RecordCell {
+function compareCell(
+  cp: RecordColumnPair,
+  leftRow: string[],
+  rightRow: string[],
+  adjust?: { leftMinusRight: number; reason: string },
+): RecordCell {
   const lRaw = (leftRow[cp.leftIndex] ?? '').trim();
   const rRaw = (rightRow[cp.rightIndex] ?? '').trim();
 
@@ -428,13 +446,50 @@ function compareCell(cp: RecordColumnPair, leftRow: string[], rightRow: string[]
     right: rRaw,
   };
 
-  if (!lRaw && !rRaw) {
-    return { ...base, strategy: 'text', delta: null, tolerance: null, similarity: 1, formattingOnly: false, composition: null, verdict: 'missing-both' };
+  /**
+   * A column the module declares as differing by a fixed amount by definition.
+   *
+   * Checked first and on its own, because the point is to verify the stated relationship
+   * rather than to excuse the column. AutoGroup's deal age counts the current day where
+   * DMS's does not, so its figure is one higher for the same deal — every time, across 43
+   * deals and 11 deal dates. Comparing the two raw would report 43 differences that are
+   * not differences; ignoring the column would stop anyone noticing if the relationship
+   * changed. So the difference is subtracted and the result compared, and a cell that
+   * fails is still a mismatch.
+   */
+  if (adjust && lRaw && rRaw) {
+    const lv = parseCell(lRaw);
+    const rv = parseCell(rRaw);
+    if (lv.value !== null && rv.value !== null) {
+      const delta = round(rv.value - (lv.value - adjust.leftMinusRight), 4);
+      const ok = Math.abs(delta) <= 0.02;
+      return {
+        ...base,
+        strategy: 'value',
+        delta,
+        tolerance: 0.02,
+        similarity: null,
+        formattingOnly: false,
+        composition: null,
+        definitional: ok
+          ? adjust.reason
+          : `Declared to differ by ${adjust.leftMinusRight} (${adjust.reason}), but this record ` +
+            `differs by ${round(lv.value - rv.value, 4)} instead.`,
+        verdict: ok ? 'match' : 'mismatch',
+      };
+    }
   }
-  if (!lRaw) {
+
+  // Emptiness is judged the same way here as in compareTexts, including a placeholder dash.
+  // These guards run before any comparison, so a narrower notion of "empty" at this point
+  // would quietly override the one used everywhere else.
+  if (isBlankText(lRaw) && isBlankText(rRaw)) {
+    return { ...base, strategy: 'text', delta: null, tolerance: null, similarity: 1, formattingOnly: lRaw !== rRaw, composition: null, verdict: 'match' };
+  }
+  if (isBlankText(lRaw)) {
     return { ...base, strategy: 'text', delta: null, tolerance: null, similarity: 0, formattingOnly: false, composition: null, verdict: 'missing-left' };
   }
-  if (!rRaw) {
+  if (isBlankText(rRaw)) {
     return { ...base, strategy: 'text', delta: null, tolerance: null, similarity: 0, formattingOnly: false, composition: null, verdict: 'missing-right' };
   }
 
@@ -654,7 +709,12 @@ function compareCell(cp: RecordColumnPair, leftRow: string[], rightRow: string[]
 export function compareRecords(
   left: GridProfile,
   right: GridProfile,
-  sides: { leftLabel: string; rightLabel: string },
+  sides: {
+    leftLabel: string;
+    rightLabel: string;
+    /** Columns the module declares as differing by a fixed amount by definition. */
+    recordColumns?: Record<string, { leftMinusRight: number; reason: string }>;
+  },
 ): RecordComparison | null {
   const leftHeaders = headerNames(left);
   const rightHeaders = headerNames(right);
@@ -675,6 +735,19 @@ export function compareRecords(
     if (k && !rightByKey.has(k)) rightByKey.set(k, row);
   }
 
+  /**
+   * Declared definitional differences, resolved per column pair.
+   *
+   * Matched on the normalized heading from either screen, so the declaration works whichever
+   * name the module author had in front of them — "AGE (DAYS)" on one screen and plain "AGE"
+   * on the other are the same column.
+   */
+  const declared = new Map(
+    Object.entries(sides.recordColumns ?? {}).map(([k, v]) => [normalizeLabel(k), v]),
+  );
+  const adjustFor = (cp: RecordColumnPair) =>
+    declared.get(normalizeLabel(cp.name)) ?? declared.get(normalizeLabel(cp.rightName)) ?? undefined;
+
   const records: RecordOutcome[] = [];
   const onlyOnLeft: string[] = [];
   const usedKeys = new Set<string>();
@@ -689,7 +762,7 @@ export function compareRecords(
     }
     usedKeys.add(k);
 
-    const cells: RecordCell[] = pairs.map((cp) => compareCell(cp, row, other));
+    const cells: RecordCell[] = pairs.map((cp) => compareCell(cp, row, other, adjustFor(cp)));
 
     records.push({ key: k, cells, passed: cells.every((c) => c.verdict === 'match') });
   }
@@ -698,6 +771,7 @@ export function compareRecords(
 
   let matched = 0;
   let formattingOnly = 0;
+  let definitional = 0;
   let mismatched = 0;
   let missing = 0;
   let numericCells = 0;
@@ -709,6 +783,10 @@ export function compareRecords(
       if (c.verdict === 'match') {
         matched++;
         if (c.formattingOnly) formattingOnly++;
+        // Counted separately from formatting: these agreed only because a declared
+        // definitional difference was allowed for, which the reader needs to see rather
+        // than have folded into a clean total.
+        if (c.definitional) definitional++;
       } else if (c.verdict === 'mismatch') mismatched++;
       else missing++;
     }
@@ -743,11 +821,18 @@ export function compareRecords(
       totalCells: matched + mismatched + missing,
       matched,
       formattingOnly,
+      definitional,
       mismatched,
       missing,
       numericCells,
       textCells,
     },
-    note,
+    note:
+      note +
+      (definitional
+        ? ` ${definitional} cell(s) agreed only once a declared definitional difference was ` +
+          'allowed for; each was verified against the stated relationship rather than skipped, ' +
+          'so a record that stopped following it would still be reported.'
+        : ''),
   };
 }

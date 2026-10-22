@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dealership Health — MyDealerKPI</title>
+<style>
+  :root {
+    --bg: #0f1216; --panel: #171b21; --panel2: #1d222a; --line: #272e38;
+    --txt: #e7ebf0; --mut: #8a94a3; --pass: #2ecc71; --warn: #f1c40f;
+    --fail: #e74c3c; --skip: #6b7684; --accent: #e23744; --info: #3498db;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt);
+    font: 14px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 22px;
+    background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header .brand b { color: var(--accent); }
+  .meta { color: var(--mut); font-size: 12px; }
+  .spacer { flex: 1; }
+  .btn { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 8px 16px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--txt); }
+  .counts { display: flex; gap: 10px; }
+  .chip { padding: 5px 12px; border-radius: 20px; font-weight: 700; font-size: 12px; background: var(--panel2); }
+  .chip.pass { color: var(--pass); } .chip.warn { color: var(--warn); }
+  .chip.fail { color: var(--fail); } .chip.skip { color: var(--skip); }
+  .chip.total { color: var(--txt); }
+  .bar { height: 4px; background: var(--panel2); }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  main { display: grid; grid-template-columns: 1.4fr 1fr; gap: 0; height: calc(100vh - 110px); }
+  .col { overflow: auto; padding: 16px 20px; }
+  .col.left { border-right: 1px solid var(--line); }
+  h2.sec { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--mut);
+    margin: 18px 0 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    margin-bottom: 8px; overflow: hidden; }
+  .card .head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; }
+  .card .head:hover { background: var(--panel2); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--skip); }
+  .dot.pass { background: var(--pass); } .dot.warn { background: var(--warn); }
+  .dot.fail { background: var(--fail); } .dot.run { background: var(--info); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .nm { font-weight: 600; } .pth { color: var(--mut); font-size: 12px; }
+  .v { margin-left: auto; font-weight: 700; font-size: 12px; }
+  .v.pass { color: var(--pass); } .v.warn { color: var(--warn); }
+  .v.fail { color: var(--fail); } .v.skip { color: var(--skip); } .v.run { color: var(--info); }
+  .body { display: none; padding: 0 14px 12px; border-top: 1px solid var(--line); }
+  .card.open .body { display: block; }
+  .reason { color: var(--mut); font-size: 12px; margin: 8px 0; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--panel2); color: var(--mut); }
+  .tag.err { color: var(--fail); } .tag.ok { color: var(--pass); }
+  table.api { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+  table.api td { padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .st { font-weight: 700; } .st.ok { color: var(--pass); } .st.warn { color: var(--warn); } .st.bad { color: var(--fail); }
+  .url { color: var(--mut); word-break: break-all; }
+  img.shot { width: 100%; border: 1px solid var(--line); border-radius: 6px; margin-top: 8px; }
+  #log { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  #log .line { padding: 2px 0; border-bottom: 1px solid var(--line); color: var(--mut); }
+  #log .line.api-bad { color: var(--fail); } #log .line.api-ok { color: var(--txt); }
+  #log .line.evt { color: var(--info); }
+  .live { position: sticky; top: 0; background: var(--panel); padding: 6px 0; z-index: 2; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><h1>Dealership Health — <b>My</b>DealerKPI</h1></div>
+  <div class="meta" id="meta">idle</div>
+  <div class="spacer"></div>
+  <div class="counts">
+    <span class="chip total" id="c-total">0</span>
+    <span class="chip pass" id="c-pass">0 pass</span>
+    <span class="chip warn" id="c-warn">0 warn</span>
+    <span class="chip fail" id="c-fail">0 fail</span>
+    <span class="chip skip" id="c-skip">0 skip</span>
+  </div>
+  <button class="btn" id="run">Start crawl</button>
+</header>
+<div class="bar"><div id="progress"></div></div>
+
+<main>
+  <div class="col left" id="screens">
+    <div class="meta" style="padding:20px;color:var(--mut)">Press “Start crawl” to log in as the ghost user and verify every module. A Chrome window will open so you can watch.</div>
+  </div>
+  <div class="col right">
+    <div class="live"><h2 class="sec" style="margin:0">Live activity</h2></div>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const screensEl = $('#screens');
+const logEl = $('#log');
+const counts = { total: 0, pass: 0, warn: 0, fail: 0, skip: 0 };
+const cards = new Map();
+let groupsRendered = new Set();
+
+function log(msg, cls = '') {
+  const d = document.createElement('div');
+  d.className = 'line ' + cls;
+  d.textContent = msg;
+  logEl.prepend(d);
+  while (logEl.children.length > 400) logEl.removeChild(logEl.lastChild);
+}
+function stCls(s) { s = +s; if (!s) return 'warn'; if (s >= 500 || s === 401 || s === 403) return 'bad'; if (s >= 400) return 'warn'; return 'ok'; }
+
+function ensureGroup(group) {
+  if (groupsRendered.has(group)) return;
+  groupsRendered.add(group);
+  const h = document.createElement('h2');
+  h.className = 'sec';
+  h.textContent = group;
+  h.dataset.group = group;
+  screensEl.appendChild(h);
+}
+
+function screenCard(e) {
+  ensureGroup(e.group);
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="head">
+      <span class="dot run"></span>
+      <div><div class="nm">${e.name}</div><div class="pth">${e.path}</div></div>
+      <span class="v run">checking…</span>
+    </div>
+    <div class="body"></div>`;
+  card.querySelector('.head').onclick = () => card.classList.toggle('open');
+  screensEl.appendChild(card);
+  cards.set(e.index, card);
+  return card;
+}
+
+function updateCounts() {
+  $('#c-total').textContent = counts.total;
+  $('#c-pass').textContent = counts.pass + ' pass';
+  $('#c-warn').textContent = counts.warn + ' warn';
+  $('#c-fail').textContent = counts.fail + ' fail';
+  $('#c-skip').textContent = counts.skip + ' skip';
+}
+
+function finishCard(e) {
+  let card = cards.get(e.index) || screenCard(e);
+  const v = e.verdict.toLowerCase();
+  card.querySelector('.dot').className = 'dot ' + v;
+  const vEl = card.querySelector('.v');
+  vEl.className = 'v ' + v;
+  vEl.textContent = e.verdict + (e.httpStatus && e.httpStatus !== '-' ? ' · ' + e.httpStatus : '');
+  const apiRows = (e.apis || []).map((a) =>
+    `<tr><td class="st ${stCls(a.status)}">${a.status}</td><td>${a.method}</td><td class="url">${a.url}</td></tr>`).join('');
+  const tabTags = (e.tabs || []).map((t) => `<span class="tag">tab: ${t}</span>`).join('');
+  const modalTags = (e.modals || []).map((m) => `<span class="tag ok">modal: ${m.label}</span>`).join('');
+  const conErr = (e.consoleErrors || []).map((c) => `<div class="tag err">console: ${c}</div>`).join('');
+  card.querySelector('.body').innerHTML = `
+    <div class="reason">${e.reason || ''}</div>
+    <div class="tags">
+      <span class="tag">${e.apiCount || 0} API calls</span>
+      ${e.forbidden && e.forbidden.length ? `<span class="tag err">${e.forbidden.length} 401/403</span>` : ''}
+      ${e.serverErrors && e.serverErrors.length ? `<span class="tag err">${e.serverErrors.length} 5xx</span>` : ''}
+      ${tabTags} ${modalTags}
+    </div>
+    ${conErr}
+    ${apiRows ? `<table class="api">${apiRows}</table>` : ''}
+    ${e.screenshot ? `<img class="shot" loading="lazy" src="/shot?run=${encodeURIComponent(runId)}&f=${encodeURIComponent(e.screenshot)}" />` : ''}`;
+  counts[v] = (counts[v] || 0) + 1;
+  counts.total++;
+  updateCounts();
+  const pct = total ? Math.round((counts.total / total) * 100) : 0;
+  $('#progress').style.width = pct + '%';
+}
+
+let es, total = 0, runId = '';
+
+$('#run').onclick = () => {
+  $('#run').disabled = true;
+  $('#run').textContent = 'Crawling…';
+  screensEl.innerHTML = '';
+  logEl.innerHTML = '';
+  cards.clear(); groupsRendered = new Set();
+  counts.total = counts.pass = counts.warn = counts.fail = counts.skip = 0;
+  updateCounts();
+  $('#progress').style.width = '0%';
+
+  fetch('/start', { method: 'POST' });
+  es = new EventSource('/events');
+  es.onmessage = (ev) => {
+    const e = JSON.parse(ev.data);
+    switch (e.type) {
+      case 'run-start':
+        runId = e.runId;
+        $('#meta').textContent = `${e.user} @ ${e.base} (${e.role}) — discovering menu…`;
+        log(`Run started as ${e.user}; logging in…`, 'evt');
+        break;
+      case 'modules':
+        total = e.total;
+        $('#meta').textContent = $('#meta').textContent.replace(/discovering menu….*$/, `${e.total} modules (sidebar + children)`);
+        log(`Discovered ${e.total} menu items (every module + child)`, 'evt');
+        break;
+      case 'log': log(e.msg, 'evt'); break;
+      case 'login': log(`Login ${e.ok ? 'OK' : 'FAILED'} → ${e.landed}`, e.ok ? 'evt' : 'api-bad'); break;
+      case 'screen-start': screenCard(e); log('▶ ' + e.name + '  ' + e.path, 'evt'); break;
+      case 'api': {
+        const bad = e.status >= 400; log(`${e.status} ${e.method} ${e.url}`, bad ? 'api-bad' : 'api-ok'); break;
+      }
+      case 'console-error': log('console: ' + e.msg, 'api-bad'); break;
+      case 'tab': log('  tab → ' + e.label); break;
+      case 'modal': log('  modal → ' + e.label); break;
+      case 'screen-done': finishCard(e); log(`✔ ${e.name}: ${e.verdict}`, e.verdict === 'FAIL' ? 'api-bad' : 'evt'); break;
+      case 'done':
+        log(`Done. ${e.summary.pass} pass / ${e.summary.warn} warn / ${e.summary.fail} fail / ${e.summary.skip} skip`, 'evt');
+        $('#run').disabled = false; $('#run').textContent = 'Run again';
+        es.close();
+        break;
+    }
+  };
+  es.onerror = () => { log('stream closed', 'evt'); };
+};
+</script>
+</body>
+</html>

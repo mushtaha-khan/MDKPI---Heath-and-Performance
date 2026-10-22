@@ -98,6 +98,17 @@ border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertica
 
 <main>
 
+  <section id="saved-sec" style="display:none">
+    <h2>Saved modules</h2>
+    <p class="hint" style="margin:-6px 0 12px">Run re-compares a module against the screens saved for it,
+      with the matching rules that module carries. The advanced options below still apply, so a saved
+      module can also be re-compared against existing captures without touching the portal.</p>
+    <table>
+      <thead><tr><th>Module</th><th>Screens</th><th>Rules applied</th><th></th></tr></thead>
+      <tbody id="saved"></tbody>
+    </table>
+  </section>
+
   <section>
     <h2>New run</h2>
     <div class="grid g2">
@@ -315,7 +326,12 @@ function listen(){
     var d = JSON.parse(ev.data);
     if (d.ok && d.meta){
       var s = d.meta.summary || {};
-      var diff = (s.mismatched || 0) + (s.missing || 0);
+      var cellDiff = (s.mismatched || 0) + (s.missing || 0);
+      // Passes that measure something other than cells — corroborating a summary against its
+      // own record listing, in particular — also report differences. Counting only cells
+      // announced "No differences found" on a run that disagreed with itself.
+      var passDiff = (d.meta.passes || []).reduce(function(a, p){ return a + (p.differences || 0); }, 0);
+      var diff = cellDiff || passDiff;
       var rf = d.meta.rowFormulas, cc = d.meta.columnChecks;
       var cards =
         card(s.totalCells || 0, 'cells compared', '') +
@@ -380,8 +396,42 @@ function cellsCell(r){
 
 var showDeleted = false;
 
+// --- keeping the listing current ------------------------------------------------
+// The panel polls instead of relying on the page being reloaded, so a report shows up
+// on its own however it was produced — a run finished in another tab, or in this one
+// while you were reading something else.
+//
+// Each loader records a signature of what it last drew and returns early when nothing
+// has changed. Without that, re-rendering every few seconds would fight the person
+// using the panel: it resets the capture picker, drops the row marked pending mid-delete,
+// and makes the tables flicker for no reason.
+var lastRunsSig = null, lastDeletedSig = null, lastReusableSig = null, lastModulesSig = null;
+
+/** Everything the tables actually display. A change here means a redraw is warranted. */
+function sigOf(list, extra){
+  return list.length + '|' + list.map(function(r){
+    return r.runId + ':' + r.status + ':' + (r.cells ? r.cells.matched + '/' + r.cells.total : '') +
+      (extra ? ':' + (r[extra] || '') : '');
+  }).join(',');
+}
+
+/**
+ * Set while a delete or restore is in flight, to hold the poll off.
+ *
+ * Those operations re-render the tables themselves when they complete. A poll landing in
+ * between would redraw from a list the server has not finished changing yet, which makes a
+ * deleted row reappear for a few seconds before correcting itself.
+ */
+var uiBusy = false;
+
 function loadRuns(){
   fetch('/api/runs').then(function(r){ return r.json(); }).then(function(list){
+    var sig = sigOf(list);
+    if (sig === lastRunsSig) return;
+    lastRunsSig = sig;
+    // A new or removed report changes which captures can be reused, so refresh that too —
+    // but only now, when something actually changed, rather than on every poll.
+    loadReusable();
     $('run-count').textContent = list.length ? '(' + list.length + ')' : '';
     var tb = $('runs');
     if (!list.length){ tb.innerHTML = '<tr><td colspan="8" class="mono">No runs yet.</td></tr>'; return; }
@@ -419,6 +469,11 @@ function loadRuns(){
 
 function loadDeleted(){
   fetch('/api/runs?deleted=deleted').then(function(r){ return r.json(); }).then(function(list){
+    // showDeleted is part of the signature because the toggle's own label is rendered
+    // here. Leave it out and "Show deleted" never flips to "Hide deleted".
+    var sig = sigOf(list, 'deletedWhen') + '|' + showDeleted;
+    if (sig === lastDeletedSig) return;
+    lastDeletedSig = sig;
     $('del-count').textContent = list.length ? '(' + list.length + ')' : '';
     $('toggle-deleted').textContent = showDeleted
       ? 'Hide deleted' + (list.length ? ' (' + list.length + ')' : '')
@@ -452,19 +507,31 @@ function post(path, runId){
 // confirmation dialog. Nothing leaves the disk either way.
 function softDelete(runId, row){
   if (row) row.classList.add('pending');
+  uiBusy = true;
   post('/api/runs/delete', runId).then(function(res){
+    uiBusy = false;
     if (res.error){ $('del-note').textContent = res.error; if (row) row.classList.remove('pending'); return; }
     $('del-note').innerHTML = 'Deleted <span class="mono">' + esc(runId) +
       '</span> &mdash; <button type="button" class="linkish" data-undo="' + esc(runId) + '">Undo</button>';
     loadRuns();
+  }).catch(function(e){
+    // Never leave the poll switched off because a request failed.
+    uiBusy = false;
+    if (row) row.classList.remove('pending');
+    $('del-note').textContent = 'Delete failed: ' + e.message;
   });
 }
 
 function restore(runId){
+  uiBusy = true;
   post('/api/runs/restore', runId).then(function(res){
+    uiBusy = false;
     if (res.error){ $('del-note').textContent = res.error; return; }
     $('del-note').textContent = 'Restored ' + runId + '.';
     loadRuns();
+  }).catch(function(e){
+    uiBusy = false;
+    $('del-note').textContent = 'Restore failed: ' + e.message;
   });
 }
 
@@ -478,6 +545,21 @@ document.addEventListener('click', function(ev){
   if (res){ restore(res); return; }
   var undo = t.getAttribute('data-undo');
   if (undo){ restore(undo); return; }
+
+  // Saved modules. Both actions fill the form first, so what runs is always what the
+  // form shows — and the advanced options (formulas, reuse captures) still apply.
+  var modRun = t.getAttribute('data-mod-run');
+  if (modRun !== null){
+    applyModule(SAVED[Number(modRun)]);
+    $('run').click();
+    return;
+  }
+  var modLoad = t.getAttribute('data-mod-load');
+  if (modLoad !== null){
+    applyModule(SAVED[Number(modLoad)]);
+    $('ag').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 });
 
 $('toggle-deleted').addEventListener('click', function(){
@@ -486,6 +568,59 @@ $('toggle-deleted').addEventListener('click', function(){
   loadDeleted();
 });
 
+// --- saved modules -------------------------------------------------------------
+// One JSON file per module under modules/, holding its two screen paths and its
+// matching rules. Kept as data rather than per-module scripts so the same deterministic
+// engine runs every module.
+var SAVED = [];
+
+// Show just the path. The host is the same for every module and only makes the row
+// harder to scan.
+function screenPath(u){
+  try { return new URL(u).pathname; } catch(e){ return u || ''; }
+}
+
+function applyModule(m){
+  $('ag').value = m.autogroupUrl || '';
+  $('dms').value = m.dmsUrl || '';
+  $('mod').value = m.name || '';
+  $('agRole').value = m.autogroupRole || '';
+  $('dmsRole').value = m.dmsRole || '';
+  validate();
+}
+
+function loadModules(){
+  fetch('/api/modules').then(function(r){ return r.json(); }).then(function(list){
+    var sig = JSON.stringify(list);
+    if (sig === lastModulesSig) return;
+    lastModulesSig = sig;
+    SAVED = Array.isArray(list) ? list : [];
+    if (!SAVED.length){ $('saved-sec').style.display = 'none'; return; }
+    $('saved-sec').style.display = '';
+    $('saved').innerHTML = SAVED.map(function(m, i){
+      var screens = m.problem
+        ? '<span class="b b-warn">unavailable</span> <span class="mono">' + esc(m.problem) + '</span>'
+        : '<span class="mono">' + esc(screenPath(m.autogroupUrl)) + '</span><br>' +
+          '<span class="mono">' + esc(screenPath(m.dmsUrl)) + '</span>';
+      var actions = m.problem
+        ? '<span class="mono">check modules/' + esc(m.slug) + '.json</span>'
+        : '<button type="button" data-mod-run="' + i + '">Run</button> ' +
+          '<button type="button" class="rowbtn" data-mod-load="' + i + '">Load into form</button>';
+      return '<tr>' +
+        '<td>' + esc(m.name) + '<br><span class="mono">' + esc(m.autogroupRole) + ' / ' +
+          esc(m.dmsRole) + '</span></td>' +
+        '<td>' + screens + '</td>' +
+        '<td class="mono">' + (m.rules && m.rules.length ? esc(m.rules.join(' · ')) : 'automatic matching only') + '</td>' +
+        '<td style="white-space:nowrap">' + actions + '</td>' +
+        '</tr>';
+    }).join('');
+  }).catch(function(){
+    // A missing modules/ directory is not an error worth showing; the section just stays hidden.
+    $('saved-sec').style.display = 'none';
+  });
+}
+loadModules();
+
 // The capture picker is only meaningful when reuse is on.
 $('reuse').addEventListener('change', function(){
   $('reuse-from-field').style.display = $('reuse').checked ? '' : 'none';
@@ -493,16 +628,39 @@ $('reuse').addEventListener('change', function(){
 
 function loadReusable(){
   fetch('/api/runs?includeCli=1&deleted=all').then(function(r){ return r.json(); }).then(function(list){
+    var sig = list.length + '|' + list.map(function(r){ return r.runId; }).join(',');
+    if (sig === lastReusableSig) return;
+    lastReusableSig = sig;
     var sel = $('reuse-from');
+    // Rebuilding the options discards the selection, so put it back. Someone who picked a
+    // specific snapshot should not silently end up on "most recent" because an unrelated
+    // run finished in the meantime.
+    var keep = sel.value;
     var opts = ['<option value="">Most recent available</option>'];
     list.forEach(function(r){
       opts.push('<option value="' + esc(r.runId) + '">' + esc(r.moduleName) + ' — ' + esc(r.when || r.runId) +
         (r.deletedAt ? ' (deleted)' : '') + '</option>');
     });
     sel.innerHTML = opts.join('');
+    if (keep) sel.value = keep;
   });
 }
 loadReusable();
+
+// Poll for reports and saved modules. Idle cost is one request each, and neither touches
+// the DOM unless something changed. Paused while the tab is hidden, because a panel nobody
+// is looking at has no reason to read the disk — and refreshed the moment it comes back,
+// so returning to the tab never shows a stale list.
+var REFRESH_MS = 6000;
+function autoRefresh(){
+  if (document.hidden || uiBusy) return;
+  loadRuns();
+  loadModules();
+}
+setInterval(autoRefresh, REFRESH_MS);
+document.addEventListener('visibilitychange', function(){
+  if (!document.hidden) autoRefresh();
+});
 
 // Reconnect to an in-flight run if the page is reloaded mid-run.
 fetch('/api/status').then(function(r){ return r.json(); }).then(function(st){

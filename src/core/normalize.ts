@@ -208,6 +208,23 @@ export function normalizeText(raw: string | undefined | null): string {
     .trim();
 }
 
+/**
+ * "No value here", however the screen chooses to render it.
+ *
+ * One screen prints an em-dash in an empty cell where the other leaves it blank. Both are
+ * saying the same thing — a deal that has not been funded yet has no funding date — so
+ * reading the dash as content reported a missing value on every such cell. `parseCell`
+ * already treats these as empty for numbers; text was the inconsistent one.
+ *
+ * Exported because the record comparison guards on emptiness before it ever reaches
+ * `compareTexts`, and two different notions of "empty" in the same pipeline is how a fix
+ * ends up having no effect.
+ */
+export function isBlankText(s: string | undefined | null): boolean {
+  const t = (s ?? '').trim();
+  return !t || t === '-' || t === '—' || t === '–' || t.toUpperCase() === 'N/A';
+}
+
 export interface TextComparison {
   verdict: Verdict;
   /** 0..1 similarity of the two texts, for reporting a near miss. */
@@ -237,9 +254,13 @@ export function compareTexts(
   const l = (leftRaw ?? '').trim();
   const r = (rightRaw ?? '').trim();
 
-  if (!l && !r) return { verdict: 'missing-both', similarity: 1, formattingOnly: false };
-  if (!l) return { verdict: 'missing-left', similarity: 0, formattingOnly: false };
-  if (!r) return { verdict: 'missing-right', similarity: 0, formattingOnly: false };
+  // Both empty is agreement, not an absence to report. Flagged as a formatting difference
+  // when the two screens render "nothing" differently, so it stays visible.
+  if (isBlankText(l) && isBlankText(r)) {
+    return { verdict: 'match', similarity: 1, formattingOnly: l !== r };
+  }
+  if (isBlankText(l)) return { verdict: 'missing-left', similarity: 0, formattingOnly: false };
+  if (isBlankText(r)) return { verdict: 'missing-right', similarity: 0, formattingOnly: false };
 
   if (l === r) return { verdict: 'match', similarity: 1, formattingOnly: false };
 

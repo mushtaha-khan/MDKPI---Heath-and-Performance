@@ -1,5 +1,11 @@
 {
   "name": "Service Summary",
+
+  "screens": {
+    "autogroup": { "path": "/auto-group-v2/service/service-summary", "role": "AUTOGROUP" },
+    "dms": { "path": "/report/services/dashboard", "role": "DEALER" }
+  },
+
   "gridHints": ["CUSTOMER PAY", "WARRANTY"],
 
   "aliases": {
@@ -24,6 +30,8 @@
   "_notes": [
     "gridHints picks the metric grid by header text rather than table index, since the",
     "DMS dashboard renders several smaller summary strips before it.",
+    "screens holds paths only. The host comes from KPI_BASE_URL at run time, because this",
+    "file is committed and the tenant hostname is a customer's.",
     "aliases map AutoGroup's 'TOTAL L&P ...' onto DMS's 'SUB-TOTAL L&P ...'. Keys and",
     "values are normalized before matching, which is why they appear expanded here",
     "(L&P -> LABOUR AND PARTS, SUB-TOTAL -> SUBTOTAL).",

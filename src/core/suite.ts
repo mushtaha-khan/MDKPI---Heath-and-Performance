@@ -72,11 +72,33 @@ export interface Capture {
   };
   apiCalls?: Array<{ method: string; url: string; status: number; requestBody: string | null }>;
   screenshots?: { viewport?: string | null; fullPage?: string | null; slices?: string[] };
+  /**
+   * What the capture did with each paginator it found, recorded so a listing that is still
+   * truncated is visible rather than being mistaken for the whole set. `before`/`after` hold
+   * the screen's own record count text, e.g. "1 to 10 out of 43 records".
+   */
+  pagination?: Array<{
+    before: string;
+    after: string;
+    from?: string;
+    to?: string;
+    changed: boolean;
+    note?: string;
+  }>;
 }
 
 export interface ModulePreset {
   /** Human-readable module name, e.g. "Service Summary". */
   name: string;
+  /**
+   * Where this module's two screens live, so the control panel can offer it as a saved
+   * one-click run. Read by core/modules.ts; the comparison engine ignores it, because by
+   * the time runSuite is called both screens have already been captured.
+   */
+  screens?: {
+    autogroup?: { path?: string; url?: string; role?: string };
+    dms?: { path?: string; url?: string; role?: string };
+  };
   /**
    * Optional narrowing. Every hint must appear in a paired grid's headers for that
    * grid to be compared. Omit to compare every grid that has a counterpart.
@@ -94,6 +116,36 @@ export interface ModulePreset {
   kinds?: Record<string, MetricKind>;
   /** Labels where the two products differ by definition rather than by data. */
   definitional?: string[];
+  /**
+   * Columns of a record listing that differ between the two screens by a known, fixed
+   * amount because the two products define the measure differently.
+   *
+   * Keyed by column name, matched on either screen's heading. `leftMinusRight` states the
+   * expected difference, and the engine *verifies* it on every record rather than
+   * suppressing the column: a cell that satisfies the declared relationship is a match
+   * flagged as definitional, and one that does not is still reported as a difference. So
+   * declaring a relationship narrows what counts as a finding without hiding anything —
+   * if the relationship ever stops holding, that becomes the finding.
+   */
+  recordColumns?: Record<string, { leftMinusRight: number; reason: string }>;
+  /**
+   * Corroboration checks where a screen's own summary total is composed differently from the
+   * listing column that would otherwise reproduce it.
+   *
+   * Keyed by the listing column name. `minusColumns` and `plusColumns` name other columns of
+   * the same listing whose aggregates are removed from, or added to, this one before it is
+   * checked against the summary — so a relationship involving a third quantity can be stated
+   * and then verified.
+   *
+   * Open RO is the case this exists for: DMS's summary GROSS excludes miscellaneous sales
+   * where the listing's TOTAL GROSS includes them, so the listing reproduces the summary only
+   * once MISC SALE is taken out. As with recordColumns the relationship is checked rather
+   * than assumed, and a run where it stops holding is still reported.
+   */
+  corroboration?: Record<
+    string,
+    { minusColumns?: string[]; plusColumns?: string[]; reason: string }
+  >;
   matchThreshold?: number;
 }
 
@@ -1264,6 +1316,7 @@ export function runSuite(left: Capture, right: Capture, preset: ModulePreset): S
       recordComparison = compareRecords(lDetail, rDetail, {
         leftLabel: left.label,
         rightLabel: right.label,
+        recordColumns: preset.recordColumns,
       });
     }
   }
@@ -1503,6 +1556,7 @@ export function runSuite(left: Capture, right: Capture, preset: ModulePreset): S
       pairs.map((p) => p.left).sort((a, b) => b.dataRows - a.dataRows)[0] ?? null,
     comparedRight:
       pairs.map((p) => p.right).sort((a, b) => b.dataRows - a.dataRows)[0] ?? null,
+    corroboration: preset.corroboration,
   });
 
   /** One sentence per screen describing how it presents this module. */

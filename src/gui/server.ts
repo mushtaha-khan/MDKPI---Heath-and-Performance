@@ -17,11 +17,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 
 import { listRuns, resolveRunDir, restoreRun, softDeleteRun, type RunSummary } from '../core/runs.js';
+import { listModules } from '../core/modules.js';
 import { formatIso, formatRunStamp } from '../core/datetime.js';
 import { renderGuiPage } from './page.js';
 
 const HOST = '127.0.0.1';
 const RUNS_ROOT = path.resolve('artifacts', 'runs');
+const MODULES_ROOT = path.resolve('modules');
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -381,6 +383,13 @@ export function startGui(port: number): Promise<{ port: number; url: string }> {
           'Cache-Control': 'no-store',
         });
         res.end(page);
+        return;
+      }
+
+      // Saved modules, one JSON file each under modules/. Read fresh on every request so
+      // a module added or edited on disk appears on a page refresh, with no restart.
+      if (p === '/api/modules') {
+        json(res, 200, await listModules(MODULES_ROOT));
         return;
       }
 

@@ -1,0 +1,48 @@
+{
+  "name": "Open RO",
+
+  "screens": {
+    "autogroup": { "path": "/auto-group-v2/service/open-ro", "role": "AUTOGROUP" },
+    "dms": { "path": "/service-report/open-ro/listing", "role": "DEALER" }
+  },
+
+  "corroboration": {
+    "TOTAL GROSS": {
+      "minusColumns": ["MISC SALE"],
+      "reason": "DMS's summary GROSS excludes miscellaneous sales where its own listing's TOTAL GROSS includes them, so the listing reproduces the summary only once MISC SALE is taken out. Confirmed as intended. The relationship is verified on every run rather than the check being dropped, so a period where it stopped holding would still be reported."
+    }
+  },
+
+  "_notes": [
+    "screens holds paths only. The host comes from KPI_BASE_URL at run time, because this",
+    "file is committed and the tenant hostname is a customer's.",
+    "No matching rules: automatic matching resolves this module on its own.",
+    "Last verified: 18/18 grid cells matched and 2/2 analytics cards matched, no",
+    "differences. The DMS side shows 5 further cards with no counterpart on AutoGroup and",
+    "AutoGroup shows 2 — a coverage gap, not a disagreement, and reported as such.",
+    "",
+    "Detail-view corroboration now runs on this module. It used to be blocked because the",
+    "DMS listing was paginated at 25 of 71 records and a partial listing cannot be",
+    "aggregated without inventing a shortfall; the capture now shows all 71, so the listing",
+    "is aggregated and checked against the summary's own totals.",
+    "",
+    "It reports no differences, down from 2, and both went away for different reasons.",
+    "",
+    "The first was the check's own fault: the listing column MISC SALE had been matched to the",
+    "summary column SALES, comparing one component against the whole. Corroboration now",
+    "requires the listing column to carry no qualifier the summary column lacks, so a component",
+    "can no longer be checked against a total.",
+    "",
+    "The second was real but definitional, and is now declared and verified rather than",
+    "reported: the listing's TOTAL GROSS sums to 6,715.95 where the summary's GROSS reads",
+    "6,211.47, and the 504.48 difference is exactly the MISC SALE total. Confirmed as intended,",
+    "so the module declares it in 'corroboration' above. The check still runs — it subtracts",
+    "MISC SALE and confirms the result equals the summary total to the cent — so a period where",
+    "the relationship stopped holding would be reported again. The adjustment is carried on the",
+    "check itself, including the raw sum and the amount removed, so it is visible in the report",
+    "rather than hidden.",
+    "",
+    "Last verified: MATCH, aggregate 6,211.47 against expected 6,211.47, delta 0, from a raw",
+    "sum of 6,715.95 less MISC SALE of 504.48. Module badge: CLEAN."
+  ]
+}

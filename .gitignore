@@ -9,6 +9,32 @@ secrets.env
 # Playwright MCP persistent browser profile (contains live session cookies)
 .playwright-mcp/
 
+# Captured API responses and recap PDFs (contain real dealership figures)
+samples/
+
+# Tenant hostname lists (contain customer dealership subdomains)
+config/tenants.txt
+domains.txt
+
+# Captured auth dumps / curl commands — contain live JWT access & bearer tokens
+.pt-tmp/
+*-curl.txt
+login.json
+login_resp.json
+login2.html
+
+# Downloaded portal bundle & pages (not our code; may embed data) 
+page.html
+root.html
+main.js
+polyfills-*.js
+chunk-*.js
+scripts-*.js
+
+# Captured dealership figures / baselines (real financial data)
+baselines.json
+pdf_base.bin
+
 # Generated artifacts
 artifacts/
 test-results/

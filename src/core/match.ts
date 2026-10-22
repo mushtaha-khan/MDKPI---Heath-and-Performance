@@ -91,7 +91,13 @@ export function normalizeLabel(raw: string): string {
     // Keep & and / initially so expansions can see L&P, then strip.
     // '#' is stripped so rank prefixes like "#1 " become a bare ordinal, which the
     // single-character filter in similarity() then discards.
-    .replace(/[.,:;()\[\]"'#]/g, ' ');
+    //
+    // '?' and '!' are stripped for the same reason. A screen that heads its milestone
+    // columns as questions — "B.O RECEIVED?", "DEAL FUNDED?" — otherwise yields the token
+    // "RECEIVED?", which shares nothing with the other screen's "RECEIVED" and scores zero.
+    // "SENT TO B.O?" still paired, because its match rested on SENT and TO, so the columns
+    // pairing at all was down to how much of the heading happened to survive.
+    .replace(/[.,:;()\[\]"'#?!]/g, ' ');
 
   for (const [re, to] of EXPANSIONS) s = s.replace(re, to);
 
