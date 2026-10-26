@@ -19,7 +19,7 @@ import { chromium } from '@playwright/test';
 import dotenv from 'dotenv';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { discoverSidebar } from '../health/crawler.mjs';
+import { discoverSidebar, launchArgs } from '../health/crawler.mjs';
 import { apiName, endpointPath, queryString, redactBody, dedupeApis } from '../health/apiutil.mjs';
 import { effectiveConfig } from '../health/settings.mjs';
 
@@ -493,7 +493,7 @@ export async function discoverForPerf({ emit: rawEmit = noop, role = null, shoul
   const emit = (e) => rawEmit({ role: cfg.role, ...e });
 
   emit({ type: 'perf-discover-start', role: cfg.role, base: cfg.base });
-  const browser = await chromium.launch({ headless: cfg.headless, slowMo: cfg.slowMo, args: ['--start-maximized'] });
+  const browser = await chromium.launch({ ...launchArgs(cfg.headless), slowMo: cfg.slowMo });
   const context = await browser.newContext({ viewport: null, ignoreHTTPSErrors: true });
   const page = await context.newPage();
 
@@ -562,7 +562,7 @@ export async function runPerf({ emit: rawEmit = noop, role = null, modules = nul
 
   emit({ type: 'perf-run-start', base: cfg.base, role: cfg.role, user: cfg.username, runId, startedAt });
 
-  const browser = await chromium.launch({ headless: cfg.headless, slowMo: cfg.slowMo, args: ['--start-maximized'] });
+  const browser = await chromium.launch({ ...launchArgs(cfg.headless), slowMo: cfg.slowMo });
   const context = await browser.newContext({ viewport: null, ignoreHTTPSErrors: true });
   const page = await context.newPage();
 

@@ -82,6 +82,25 @@ async function resolveCfg(roleOverride) {
 
 const noop = () => {};
 
+/**
+ * Chromium launch args. On Linux/containers (Docker on an Ubuntu server) the Chromium
+ * sandbox usually cannot initialise without elevated capabilities, so disable it there —
+ * it's the standard, safe approach for headless CI/server use. Local desktop runs (Windows/
+ * macOS) keep the sandbox and just maximise the window. Force headless when asked.
+ * Exported so the perf crawler reuses the exact same flags.
+ */
+export function launchArgs(headless) {
+  const onLinux = process.platform === 'linux';
+  // On a headless Linux server (no X display) a visible browser can't open and would hang,
+  // so force headless there regardless of the KPI_HEADLESS setting.
+  const noDisplay = onLinux && !process.env.DISPLAY;
+  const effHeadless = headless || noDisplay;
+  const args = onLinux
+    ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    : ['--start-maximized'];
+  return { headless: effHeadless, args };
+}
+
 /** Format a Date as DD/MM/YYYY HH:MM AM/PM (12-hour, no seconds). */
 export function formatStamp(d = new Date()) {
   const p2 = (n) => String(n).padStart(2, '0');
@@ -666,7 +685,7 @@ export async function crawl({ emit: rawEmit = noop, modules = null, role = null,
 
   emit({ type: 'run-start', base: cfg.base, role: cfg.role, user: cfg.username, total: 0, runId, startedAt });
 
-  const browser = await chromium.launch({ headless: cfg.headless, slowMo: cfg.slowMo, args: ['--start-maximized'] });
+  const browser = await chromium.launch({ ...launchArgs(cfg.headless), slowMo: cfg.slowMo });
   const context = await browser.newContext({ viewport: null, ignoreHTTPSErrors: true });
   const page = await context.newPage();
 

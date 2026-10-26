@@ -1,0 +1,47 @@
+# Keep the build context small and — critically — keep secrets & local data OUT of the image.
+
+# Dependencies (reinstalled in the image)
+node_modules/
+
+# Secrets / credentials — never bake into an image
+.env
+.env.*
+!.env.example
+.kpi-settings.json
+secrets.env
+storage-state/
+*.storage.json
+
+# Captured auth dumps / curl commands (contain live tokens)
+*-curl.txt
+.pt-tmp/
+login*.json
+login2.html
+
+# Generated artifacts & reports (large; mount a volume instead if you want persistence)
+artifacts/
+test-results/
+playwright-report/
+blob-report/
+*.log
+
+# Downloaded portal bundle & pages (not needed at runtime)
+page.html
+root.html
+main.js
+polyfills-*.js
+chunk-*.js
+scripts-*.js
+baselines.json
+pdf_base.bin
+domains.txt
+
+# Playwright MCP persistent browser profile (contains live session cookies)
+.playwright-mcp/
+
+# VCS / editor / OS
+.git/
+.gitignore
+.vscode/
+.DS_Store
+Thumbs.db
