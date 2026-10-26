@@ -312,9 +312,31 @@ function connect(onReady) {
 // Persist server URL. `chrome` is undefined in a plain browser tab (only defined inside the
 // extension), so guard on typeof — referencing a bare undefined `chrome` would throw and
 // halt the whole script, leaving the page blank.
+// Default the server address to the page's OWN origin when the panel is served by the
+// server itself (i.e. a user opened http://<server-host>:5174/). This is the fix for
+// "only works on my machine": the old hardcoded http://localhost:5174 pointed every
+// visitor at THEIR OWN computer. Using location.origin makes any user who opens the
+// deployed URL connect to the right server automatically.
+// Hardcoded localhost is kept only for the Chrome extension context, where the panel is
+// loaded from a chrome-extension:// origin and there is no server to infer.
+(function defaultServerUrl() {
+  const el = $('#server');
+  const loc = (typeof window !== 'undefined' && window.location) ? window.location : null;
+  const servedByServer = loc && /^https?:$/.test(loc.protocol) && loc.host;
+  if (servedByServer) {
+    el.value = loc.origin;      // e.g. http://203.0.113.5:5174
+  }
+  // else: keep the default (localhost) for the extension side panel.
+})();
+
 const hasChromeStorage = typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
 if (hasChromeStorage) {
-  chrome.storage.local.get(['server'], (r) => { if (r.server) $('#server').value = r.server; });
+  // In the extension, a saved value may override — but only honour it inside the extension,
+  // not when the page is served over http(s) (there, the page origin is authoritative).
+  const servedByServer = typeof window !== 'undefined' && window.location && /^https?:$/.test(window.location.protocol);
+  if (!servedByServer) {
+    chrome.storage.local.get(['server'], (r) => { if (r.server) $('#server').value = r.server; });
+  }
   $('#server').addEventListener('change', () => chrome.storage.local.set({ server: $('#server').value.trim() }));
 }
 

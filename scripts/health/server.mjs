@@ -14,6 +14,7 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { networkInterfaces as osNetworkInterfaces } from 'node:os';
 import { crawl } from './crawler.mjs';
 import { runPerf } from '../perf/crawler.mjs';
 import { publicSettings, updateSettings, effectiveConfig } from './settings.mjs';
@@ -296,10 +297,15 @@ const server = http.createServer(async (req, res) => {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      // Tell nginx (and other proxies) NOT to buffer this stream. Without it, a reverse
+      // proxy holds the SSE response and the browser shows "stream closed".
+      'X-Accel-Buffering': 'no',
     });
     res.write('retry: 2000\n\n');
     clients.add(res);
-    req.on('close', () => clients.delete(res));
+    // Heartbeat comment every 20s keeps the connection alive through idle-timeout proxies.
+    const hb = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, 20000);
+    req.on('close', () => { clearInterval(hb); clients.delete(res); });
     return;
   }
 
@@ -349,10 +355,11 @@ const server = http.createServer(async (req, res) => {
   // ===================== PERFORMANCE TESTING (independent) =====================
   // --- perf SSE stream ---
   if (u.pathname === '/perf/events') {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     res.write('retry: 2000\n\n');
     perfClients.add(res);
-    req.on('close', () => perfClients.delete(res));
+    const hb = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, 20000);
+    req.on('close', () => { clearInterval(hb); perfClients.delete(res); });
     return;
   }
 
@@ -618,12 +625,21 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  const url = `http://localhost:${PORT}`;
+  // Show every address the dashboard is reachable at, so you know the URL to SHARE with
+  // other users (localhost only works on this machine; share the LAN/public address).
+  const addrs = ['localhost'];
+  try {
+    for (const list of Object.values(osNetworkInterfaces())) {
+      for (const ni of list || []) { if (ni.family === 'IPv4' && !ni.internal) addrs.push(ni.address); }
+    }
+  } catch { /* os optional */ }
   console.log(`\n  ============================================================`);
   console.log(`  TARGET DEALER : (resolving on login…)`);
   console.log(`  TARGET URL    : ${TARGET_URL}`);
   console.log(`  ============================================================`);
-  console.log(`  Dealership health dashboard: ${url}`);
-  console.log(`  Open it in Chrome, then press "Start crawl".`);
-  console.log(`  (A Chrome window opens so you can watch — set KPI_HEADLESS=true to hide it.)\n`);
+  console.log(`  Dashboard is listening on port ${PORT} (all interfaces).`);
+  console.log(`  Open / share one of these:`);
+  for (const a of addrs) console.log(`    http://${a}:${PORT}`);
+  console.log(`  Other users must use the server's LAN/public address, NOT localhost.`);
+  console.log(`  (Keep this port behind a firewall/VPN — it has no auth.)\n`);
 });
