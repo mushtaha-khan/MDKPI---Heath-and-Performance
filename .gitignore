@@ -35,6 +35,9 @@ scripts-*.js
 baselines.json
 pdf_base.bin
 
+# Runtime settings written by the Settings tab — contains target URL + credentials
+.kpi-settings.json
+
 # Generated artifacts
 artifacts/
 test-results/

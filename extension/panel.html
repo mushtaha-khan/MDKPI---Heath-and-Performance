@@ -16,6 +16,34 @@
   header { padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
   .title { font-weight: 700; font-size: 13px; }
   .title b { color: var(--accent); }
+  .settings-form { margin-top: 10px; padding: 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; max-width: 520px; }
+  .sfield { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mut); margin-bottom: 10px; }
+  .sfield input { background: var(--bg); border: 1px solid var(--line); color: var(--txt); border-radius: 5px; padding: 7px 9px; font-size: 13px; }
+  .sfield-note { font-size: 10px; color: var(--mut); }
+  .settings-status { font-size: 12px; color: var(--pass); }
+  .settings-status.err { color: var(--fail); }
+  .settings-hint { font-size: 11px; color: var(--mut); margin-top: 8px; }
+  .settings-hint code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  .pfilters { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-top: 6px; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; }
+  .pf-label { font-size: 11px; font-weight: 700; color: var(--txt); }
+  .perf-confirm { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .perf-confirm .pc-box { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 18px; max-width: 520px; width: 92%; }
+  .pc-title { font-weight: 700; font-size: 15px; margin-bottom: 10px; }
+  .pc-body { font-size: 13px; color: var(--txt); line-height: 1.7; }
+  .pc-body b { color: var(--accent); }
+  .pc-body .pc-note { color: var(--mut); font-size: 11px; font-style: italic; margin-top: 8px; display: block; }
+  .pc-actions { display: flex; gap: 10px; margin-top: 16px; }
+  .modeswitch { display: flex; gap: 0; margin-top: 8px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .modeswitch .ms { flex: 1; background: var(--panel2); color: var(--mut); border: 0; padding: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .modeswitch .ms.active { background: var(--accent); color: #fff; }
+  .pvt { } /* perf view tabs reuse .vt styles via shared rules below */
+  .v.OK, .vb.OK { color: var(--pass); } .v.SLOW, .vb.SLOW { color: var(--fail); }
+  .v.INFO, .vb.INFO { color: var(--info); } .v.ERROR, .vb.ERROR { color: var(--fail); }
+  .target { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 6px;
+    padding: 6px 10px; background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 5px; }
+  .target .t-dealer { font-weight: 700; font-size: 13px; color: var(--txt); }
+  .target .t-dealer.known { color: var(--accent); }
+  .target .t-url { font-size: 11px; color: var(--mut); word-break: break-all; }
   .row { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
   input.url { flex: 1; min-width: 160px; background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
     border-radius: 5px; padding: 6px 8px; font-size: 12px; }
@@ -97,9 +125,9 @@
   .hint code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; color: var(--txt); }
 
   .viewtabs { display: flex; gap: 4px; margin-top: 8px; }
-  .viewtabs .vt { flex: 1; background: var(--panel2); color: var(--mut); border: 1px solid var(--line);
+  .viewtabs .vt, .viewtabs .pvt { flex: 1; background: var(--panel2); color: var(--mut); border: 1px solid var(--line);
     border-radius: 5px; padding: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
-  .viewtabs .vt.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .viewtabs .vt.active, .viewtabs .pvt.active { color: #fff; background: var(--accent); border-color: var(--accent); }
   .view { display: none; flex: 1; overflow: hidden; flex-direction: column; }
   .view.active { display: flex; }
 
@@ -132,6 +160,16 @@
   .pdf-doc .fail-table tr.failrow td { background: #fdecea; }
   .pdf-doc .mono { font-family: ui-monospace, Consolas, monospace; font-size: 10px; word-break: break-all; }
   .pdf-doc hr.hist-sep { border: 0; border-top: 2px dashed #bbb; margin: 18px 0 8px; }
+  .pdf-doc details.api-module { margin: 6px 0; border: 1px solid #ddd; border-radius: 5px; }
+  .pdf-doc details.api-module > summary { cursor: pointer; padding: 6px 10px; background: #f3f3f3; font-size: 12px; }
+  .pdf-doc details.api-module[open] > summary { border-bottom: 1px solid #ddd; }
+  .pdf-doc details.api-module table { margin: 0; }
+  @media print {
+    .pdf-doc details.api-module { break-inside: avoid; }
+    /* Force every API-detail block fully visible in the printout, even if collapsed on screen. */
+    .pdf-doc details.api-module > *:not(summary) { display: block !important; }
+    .pdf-doc details.api-module > table { display: table !important; }
+  }
   .pdf-doc .hist-note { font-size: 11px; color: #777; font-style: italic; margin-bottom: 4px; }
   .report-actions { display: flex; gap: 8px; margin-bottom: 12px; }
   .report-actions .btn { font-size: 12px; }
@@ -146,25 +184,104 @@
 </head>
 <body>
 <header>
-  <div class="title"><b>My</b>DealerKPI — Dealership Health</div>
-  <div class="row">
-    <input class="url" id="server" value="http://localhost:5174" spellcheck="false" />
-    <label class="rk"><input type="checkbox" id="r-dealer" checked /> DEALER</label>
-    <label class="rk"><input type="checkbox" id="r-autogroup" checked /> AUTOGROUP</label>
-    <button class="btn" id="run">Start</button>
-    <button class="btn stop" id="stop" disabled>Stop</button>
+  <div class="title"><b>My</b>DealerKPI — Dealership Testing</div>
+  <div class="modeswitch">
+    <button class="ms active" id="ms-health" data-mode="health">Health Testing</button>
+    <button class="ms" id="ms-perf" data-mode="perf">API Performance</button>
+    <button class="ms" id="ms-settings" data-mode="settings">Settings</button>
   </div>
-  <div class="row">
-    <label class="toggle" title="When ON, also click each module/tab's Export PDF & Excel buttons and record their API results.">
-      <input type="checkbox" id="exp-toggle" checked />
-      <span class="track"><span class="knob"></span></span>
-      <span class="toggle-label">Export testing: <b id="exp-state">ON</b></span>
-    </label>
+  <div class="target" id="target">
+    <span class="t-dealer" id="t-dealer">Dealer: —</span>
+    <span class="t-url" id="t-url">URL: —</span>
   </div>
-  <div class="status"><span class="dotc wait" id="conn"></span><span id="meta">not connected</span></div>
-  <div class="viewtabs">
-    <button class="vt active" data-view="live">Live Crawl</button>
-    <button class="vt" data-view="reports">Crawl Reports</button>
+  <input class="url" id="server" value="http://localhost:5174" spellcheck="false" />
+
+  <!-- HEALTH controls -->
+  <div id="mode-health-controls">
+    <div class="row">
+      <label class="rk"><input type="checkbox" id="r-dealer" checked /> DEALER</label>
+      <label class="rk"><input type="checkbox" id="r-autogroup" checked /> AUTOGROUP</label>
+      <button class="btn" id="run">Start</button>
+      <button class="btn stop" id="stop" disabled>Stop</button>
+    </div>
+    <div class="row">
+      <label class="toggle" title="When ON, also click each module/tab's Export PDF & Excel buttons and record their API results.">
+        <input type="checkbox" id="exp-toggle" checked />
+        <span class="track"><span class="knob"></span></span>
+        <span class="toggle-label">Export testing: <b id="exp-state">ON</b></span>
+      </label>
+    </div>
+    <div class="status"><span class="dotc wait" id="conn"></span><span id="meta">not connected</span></div>
+    <div class="viewtabs">
+      <button class="vt active" data-view="live">Live Crawl</button>
+      <button class="vt" data-view="reports">Crawl Reports</button>
+    </div>
+  </div>
+
+  <!-- PERFORMANCE controls (independent) -->
+  <div id="mode-perf-controls" style="display:none">
+    <div class="row">
+      <label class="rk"><input type="checkbox" id="pr-dealer" checked /> DEALER</label>
+      <label class="rk"><input type="checkbox" id="pr-autogroup" checked /> AUTOGROUP</label>
+    </div>
+    <div class="pfilters">
+      <div class="pf-label">Date filters to test:</div>
+      <label class="rk"><input type="checkbox" class="pfilter" value="month" checked /> Single Month (MTD)</label>
+      <label class="rk"><input type="checkbox" class="pfilter" value="multi-month" checked /> Multi-Month</label>
+      <label class="rk"><input type="checkbox" class="pfilter" value="ytd" checked /> YTD</label>
+      <label class="rk"><input type="checkbox" class="pfilter" value="pytd" /> PYTD</label>
+      <label class="rk"><input type="checkbox" class="pfilter" value="alltime" /> All Time</label>
+    </div>
+    <div class="pfilters">
+      <div class="pf-label">AutoGroup scope:</div>
+      <label class="rk"><input type="checkbox" id="psc-single" checked /> Single dealer</label>
+      <label class="rk"><input type="checkbox" id="psc-all" /> All dealers</label>
+      <span class="pf-label" style="margin-left:12px">Repetitions:</span>
+      <label class="rk"><input type="radio" name="preps" value="1" /> 1× (quick)</label>
+      <label class="rk"><input type="radio" name="preps" value="3" checked /> 3× (average)</label>
+    </div>
+    <div class="row">
+      <button class="btn" id="prun">Run (discover &amp; estimate)</button>
+      <button class="btn stop" id="pstop" disabled>Stop</button>
+    </div>
+    <div class="status"><span class="dotc wait" id="pconn"></span><span id="pmeta">not connected</span></div>
+    <div class="viewtabs">
+      <button class="pvt active" data-pview="live">Live Performance</button>
+      <button class="pvt" data-pview="reports">Performance Reports</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS controls (Target URL / Username / Password) -->
+  <div id="mode-settings-controls" style="display:none">
+    <div class="settings-form">
+      <label class="sfield">Target URL
+        <input type="text" id="set-base" placeholder="https://am-gyh.mydealerkpi.com" spellcheck="false" />
+      </label>
+      <label class="sfield">Username
+        <input type="text" id="set-user" placeholder="ghost-user" spellcheck="false" autocomplete="off" />
+      </label>
+      <label class="sfield">Password
+        <input type="password" id="set-pass" placeholder="(unchanged)" autocomplete="new-password" />
+        <span class="sfield-note" id="set-pass-note"></span>
+      </label>
+      <div class="row">
+        <button class="btn" id="set-save">Save Settings</button>
+        <span class="settings-status" id="set-status"></span>
+      </div>
+      <div class="settings-hint">Applied to subsequent Health &amp; Performance runs. Stored locally only. Leave Password blank to keep the current one; these override the values in <code>.env</code>.</div>
+    </div>
+  </div>
+
+  <!-- Confirmation dialog (hidden until discovery completes) -->
+  <div id="perf-confirm" class="perf-confirm" style="display:none">
+    <div class="pc-box">
+      <div class="pc-title">Confirm Performance Run</div>
+      <div class="pc-body" id="pc-body"></div>
+      <div class="pc-actions">
+        <button class="btn" id="pc-confirm">Confirm and Run</button>
+        <button class="mini" id="pc-cancel">Cancel</button>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -185,6 +302,23 @@
     <div class="reports-list" id="reports-list"></div>
     <div class="report-detail" id="report-detail">
       <div class="hint">Select a run on the left to view its full report.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PERFORMANCE views (independent) ===== -->
+<div class="view" id="view-perf-live">
+  <div class="cols" id="pcols"></div>
+</div>
+<div class="view" id="view-perf-reports">
+  <div class="reports-bar">
+    <button class="mini" id="perf-reports-refresh">Refresh</button>
+    <span class="reports-hint">Past performance runs (newest first). Load-time benchmarks per MDKPI-7663 §2.</span>
+  </div>
+  <div class="reports-wrap">
+    <div class="reports-list" id="perf-reports-list"></div>
+    <div class="report-detail" id="perf-report-detail">
+      <div class="hint">Select a performance run on the left to view its results.</div>
     </div>
   </div>
 </div>

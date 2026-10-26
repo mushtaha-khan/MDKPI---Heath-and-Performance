@@ -18,6 +18,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { notifyFailure, notifyRunSummary, notifyEnabled } from './notify.mjs';
 import { appendApiLog } from './apilog.mjs';
+import { apiName, endpointPath, queryString, redactBody, dedupeApis } from './apiutil.mjs';
+import { effectiveConfig } from './settings.mjs';
 
 dotenv.config();
 
@@ -63,12 +65,15 @@ export const MODULES = [
   { group: 'Service', name: 'Appointment Recalls', path: '/v2/report/appointment-recalls' },
 ];
 
-function cfgFromEnv(roleOverride) {
+// Resolve the run config, with Settings-tab overrides (base/username/password) taking
+// precedence over .env. Async because it consults the saved settings store.
+async function resolveCfg(roleOverride) {
+  const eff = await effectiveConfig(); // { base, username, password } — settings over env
   return {
-    base: (process.env.HEALTH_BASE_URL || process.env.KPI_BASE_URL || 'https://gyh.mydealerkpi.com').replace(/\/$/, ''),
+    base: eff.base,
     role: roleOverride || process.env.HEALTH_ROLE || 'DEALER',
-    username: process.env.KPI_USERNAME,
-    password: process.env.KPI_PASSWORD,
+    username: eff.username,
+    password: eff.password,
     navTimeout: Number(process.env.KPI_NAV_TIMEOUT_MS ?? 90000),
     headless: process.env.KPI_HEADLESS === 'true', // default HEADED so the user can watch
     slowMo: Number(process.env.KPI_SLOWMO_MS ?? 120),
@@ -193,7 +198,7 @@ function extractDealerName(obj, depth = 0) {
  *
  * Read-only: expanding a menu parent only toggles a submenu; it submits nothing.
  */
-async function discoverSidebar(page, cfg, emit) {
+export async function discoverSidebar(page, cfg, emit) {
   // 0. Reveal the admin / settings / profile menu, which lives behind a gear or avatar
   //    trigger rather than in the main report sidebar. Clicking it only opens a menu
   //    overlay — read-only. We open each candidate, let its items render, and leave it
@@ -643,7 +648,7 @@ async function exerciseExports(page, navTimeout, emit, apiLog, tab = null) {
  * @returns {Promise<{ok:boolean, landed?:string, results:object[], runDir:string, summary:object}>}
  */
 export async function crawl({ emit: rawEmit = noop, modules = null, role = null, shouldStop = () => false, testExports = null } = {}) {
-  const cfg = cfgFromEnv(role);
+  const cfg = await resolveCfg(role);
   // Export testing: explicit option wins; otherwise fall back to the env var (default on).
   const exportsEnabled = testExports === null ? (process.env.HEALTH_TEST_EXPORTS !== 'false') : Boolean(testExports);
   if (!cfg.username || !cfg.password) throw new Error('KPI_USERNAME / KPI_PASSWORD missing from .env');
@@ -670,15 +675,35 @@ export async function crawl({ emit: rawEmit = noop, modules = null, role = null,
   let consoleErrs = [];
   let dealerName = ''; // discovered passively from an API body (see below)
   const firstParty = (url) => { try { return API_HOST_RE.test(new URL(url).hostname); } catch { return false; } };
+  // Wall-clock request-start timestamps, keyed by the Playwright request object. Used to
+  // compute a reliable response time, because req.timing().responseEnd is NOT populated in
+  // the 'response' event (it's -1 until the request finishes) — which is why Time(ms) was
+  // coming out blank.
+  const reqStart = new WeakMap();
+  page.on('request', (req) => { try { const t = req.resourceType(); if (t === 'xhr' || t === 'fetch') reqStart.set(req, Date.now()); } catch { /* ignore */ } });
   page.on('response', (r) => {
     try {
-      const t = r.request().resourceType();
+      const req = r.request();
+      const t = req.resourceType();
       if (t !== 'xhr' && t !== 'fetch') return;
       const url = r.url();
-      const now = new Date();
-      const rec = { status: r.status(), method: r.request().method(), url, firstParty: firstParty(url), ts: now.getTime(), iso: now.toISOString() };
+      const now = Date.now();
+      // Response time = now − request start (wall clock). Prefer Playwright's own timing if
+      // it happens to be populated; otherwise use the wall-clock delta. null only if neither.
+      let ms = null;
+      try { const tm = req.timing(); if (tm && tm.responseEnd > 0) ms = Math.round(tm.responseEnd - (tm.startTime > 0 ? 0 : 0)); } catch { ms = null; }
+      if (ms == null) { const s = reqStart.get(req); if (typeof s === 'number') ms = Math.max(0, now - s); }
+      // Payload: query string for GET, redacted + truncated body for POST/PUT/PATCH.
+      const method = req.method();
+      let payload = '';
+      try { if (method !== 'GET' && method !== 'HEAD') payload = redactBody(req.postData()); } catch { payload = ''; }
+      const rec = {
+        status: r.status(), method, url, name: apiName(url), endpoint: endpointPath(url),
+        query: queryString(url), payload, ms, firstParty: firstParty(url),
+        ts: now, iso: new Date(now).toISOString(),
+      };
       apis.push(rec);
-      emit({ type: 'api', status: rec.status, method: rec.method, url: rec.url });
+      emit({ type: 'api', status: rec.status, method: rec.method, url: rec.url, ms });
       // Passively sniff the dealership name out of API bodies (works for both DEALER and
       // AUTOGROUP, no CORS/401 issues since the app itself made the authenticated call).
       if (!dealerName && firstParty(url) && rec.status === 200 && /companyname|company_name|dealername|dealer_name|autodealer|dealer-dashboard|dashboard\/get/i.test(url)) {
@@ -895,12 +920,25 @@ export async function crawl({ emit: rawEmit = noop, modules = null, role = null,
         ...exportFails.map((e) => ({ status: e.status, method: e.method || '-', url: e.endpoint || e.error || '', kind: `export ${e.format}${e.tab ? ` [tab: ${e.tab}]` : ''}` })),
       ];
 
+      // Full, de-duped API list for this screen (every first-party Fetch/XHR, with name,
+      // endpoint, query, redacted payload, response time, status). This is the "complete
+      // API list" the report groups module-wise. Slow line = §2 single-dealer month max
+      // (1.30s tolerance = 1300ms) — the only §2 value applicable without a filter context.
+      const SLOW_MS = 1300;
+      const allApis = dedupeApis(screenApis.filter((a) => a.firstParty).map((a) => ({
+        name: a.name, method: a.method, endpoint: a.endpoint, query: a.query || '',
+        payload: a.payload || '', status: a.status, ms: typeof a.ms === 'number' ? a.ms : null,
+        error: a.status >= 400 ? `HTTP ${a.status}` : '',
+      })));
+      const slowApis = allApis.filter((a) => typeof a.ms === 'number' && a.ms > SLOW_MS);
+
       return {
         ...m, url, landed, verdict,
         httpStatus: httpStatus ?? (navError ? 'ERR' : '-'),
         reason: reasons.join('; ') || 'loaded; all first-party APIs < 400; no console errors',
         apiCount: screenApis.length,
         apis: screenApis.map((a) => ({ status: a.status, method: a.method, url: a.url })),
+        allApis, slowApis, slowThresholdMs: SLOW_MS,
         // Keep timestamped APIs separately for the persistent history log (not sent to the
         // live UI event, which keeps the lighter apis[] above).
         apisTimed: screenApis.map((a) => ({ status: a.status, method: a.method, url: a.url, iso: a.iso, ts: a.ts })),

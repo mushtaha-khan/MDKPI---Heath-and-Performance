@@ -208,5 +208,69 @@ export async function buildWorkbook(report, history = null) {
     h.autoFilter = 'A1:N1';
   }
 
+  // ---- All APIs (every first-party Fetch/XHR, grouped module-wise) ----
+  const allApi = wb.addWorksheet('All APIs', { views: [{ state: 'frozen', ySplit: 1 }] });
+  allApi.columns = [
+    { header: '#', key: 'n', width: 5 },
+    { header: 'Heading', key: 'group', width: 20 },
+    { header: 'Sub-Heading', key: 'subGroup', width: 16 },
+    { header: 'Module', key: 'module', width: 26 },
+    { header: 'API Name', key: 'name', width: 24 },
+    { header: 'Method', key: 'method', width: 8 },
+    { header: 'Endpoint', key: 'endpoint', width: 60 },
+    { header: 'Query / Payload', key: 'payload', width: 50 },
+    { header: 'Status', key: 'status', width: 8 },
+    { header: 'Time (ms)', key: 'ms', width: 10 },
+    { header: 'Count', key: 'count', width: 7 },
+    { header: 'Error', key: 'error', width: 20 },
+  ];
+  styleHeader(allApi.getRow(1));
+  let an = 1;
+  for (const r of results) {
+    for (const a of r.allApis || []) {
+      const row = allApi.addRow({
+        n: an++, group: r.group, subGroup: r.subGroup || '', module: r.name,
+        name: a.name, method: a.method, endpoint: a.endpoint,
+        payload: a.payload || a.query || '', status: a.status,
+        ms: typeof a.ms === 'number' ? a.ms : '', count: a.count || 1, error: a.error || '',
+      });
+      if (typeof a.status === 'number' && a.status >= 400) row.getCell('status').font = { bold: true, color: { argb: COLORS.FAIL } };
+    }
+  }
+  if (an === 1) allApi.addRow({ module: 'No APIs captured' });
+  allApi.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: allApi.columns.length } };
+
+  // ---- Slow APIs (only those exceeding the per-API §2 threshold) ----
+  const slow = wb.addWorksheet('Slow APIs', { views: [{ state: 'frozen', ySplit: 1 }] });
+  slow.columns = [
+    { header: '#', key: 'n', width: 5 },
+    { header: 'Heading', key: 'group', width: 20 },
+    { header: 'Sub-Heading', key: 'subGroup', width: 16 },
+    { header: 'Module', key: 'module', width: 26 },
+    { header: 'API Name', key: 'name', width: 24 },
+    { header: 'Method', key: 'method', width: 8 },
+    { header: 'Endpoint', key: 'endpoint', width: 60 },
+    { header: 'Query / Payload', key: 'payload', width: 50 },
+    { header: 'Status', key: 'status', width: 8 },
+    { header: 'Time (ms)', key: 'ms', width: 10 },
+    { header: 'Count', key: 'count', width: 7 },
+    { header: 'Error', key: 'error', width: 20 },
+  ];
+  styleHeader(slow.getRow(1));
+  let sn = 1;
+  for (const r of results) {
+    for (const a of r.slowApis || []) {
+      const row = slow.addRow({
+        n: sn++, group: r.group, subGroup: r.subGroup || '', module: r.name,
+        name: a.name, method: a.method, endpoint: a.endpoint,
+        payload: a.payload || a.query || '', status: a.status,
+        ms: typeof a.ms === 'number' ? a.ms : '', count: a.count || 1, error: a.error || '',
+      });
+      row.getCell('ms').font = { bold: true, color: { argb: COLORS.FAIL } };
+    }
+  }
+  if (sn === 1) slow.addRow({ module: 'No slow APIs above threshold' });
+  slow.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: slow.columns.length } };
+
   return wb.xlsx.writeBuffer();
 }

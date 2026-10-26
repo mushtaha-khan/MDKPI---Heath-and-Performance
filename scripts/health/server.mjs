@@ -13,7 +13,15 @@ import { readFile, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import { crawl } from './crawler.mjs';
+import { runPerf } from '../perf/crawler.mjs';
+import { publicSettings, updateSettings, effectiveConfig } from './settings.mjs';
+
+dotenv.config();
+
+/** The tenant this server is pointed at (health target, else legacy base). */
+const TARGET_URL = (process.env.HEALTH_BASE_URL || process.env.KPI_BASE_URL || 'https://gyh.mydealerkpi.com').replace(/\/$/, '');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] || process.env.HEALTH_PORT || 5174);
@@ -30,7 +38,34 @@ const clients = new Set();
 let running = false;
 let stopRequested = false;
 
+// --- Performance Testing: fully independent run state + its own SSE clients + artifacts ---
+const PERF_ARTIFACTS = path.resolve('artifacts', 'perf');
+const perfClients = new Set();
+let perfRunning = false;
+let perfStopRequested = false;
+function perfBroadcast(event) {
+  try {
+    if (event.type === 'perf-dealer' && event.name) console.log(`  >>> [PERF] TARGET DEALER : ${event.name}  (${TARGET_URL})  [${event.role || ''}]`);
+    else if (event.type === 'perf-run-start') console.log(`  >>> [PERF] started : ${event.role || ''} @ ${event.base || TARGET_URL}`);
+    else if (event.type === 'perf-done' && event.summary) { const s = event.summary; console.log(`  >>> [PERF] finished: ${event.role || ''} — OK ${s.ok_count || 0} / SLOW ${s.slow || 0} / INFO ${s.info || 0} / ERR ${s.error || 0}`); }
+  } catch { /* best-effort */ }
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const res of perfClients) res.write(data);
+}
+
 function broadcast(event) {
+  // Surface key milestones to the server console so the terminal shows which dealer/URL is
+  // being targeted and the run outcome — not just the browser panel.
+  try {
+    if (event.type === 'dealer' && event.name) {
+      console.log(`  >>> TARGET DEALER : ${event.name}  (${TARGET_URL})  [${event.role || ''}]`);
+    } else if (event.type === 'run-start') {
+      console.log(`  >>> crawl started  : ${event.role || ''} @ ${event.base || TARGET_URL}  user=${event.user || ''}  ${event.startedAt || ''}`);
+    } else if (event.type === 'done' && event.summary) {
+      const s = event.summary;
+      console.log(`  >>> crawl finished : ${event.role || ''} — PASS ${s.pass || 0} / WARN ${s.warn || 0} / FAIL ${s.fail || 0} / SKIP ${s.skip || 0}`);
+    }
+  } catch { /* console logging is best-effort */ }
   const data = `data: ${JSON.stringify(event)}\n\n`;
   for (const res of clients) res.write(data);
 }
@@ -92,6 +127,27 @@ function buildCsv(report, history = null) {
     lines.push([i + 1, esc(r.group), esc(r.subGroup || ''), esc(r.name), r.verdict, esc(r.httpStatus), r.apiCount || 0, (r.failedApis || []).length, esc(exp), esc(r.reason)].join(','));
   });
 
+  // ---- All APIs (module-wise) + Slow APIs ----
+  lines.push('');
+  lines.push('ALL APIS (module-wise — every first-party Fetch/XHR)');
+  lines.push(['Heading', 'Sub-Heading', 'Module', 'API Name', 'Method', 'Endpoint', 'Query/Payload', 'Status', 'Time (ms)', 'Count', 'Error'].join(','));
+  for (const r of report.results || []) {
+    for (const a of r.allApis || []) {
+      lines.push([esc(r.group), esc(r.subGroup || ''), esc(r.name), esc(a.name), esc(a.method), esc(a.endpoint), esc(a.payload || a.query || ''), esc(a.status), esc(typeof a.ms === 'number' ? a.ms : ''), esc(a.count || 1), esc(a.error || '')].join(','));
+    }
+  }
+  lines.push('');
+  lines.push('SLOW APIS (exceeding the per-API benchmark threshold)');
+  lines.push(['Heading', 'Sub-Heading', 'Module', 'API Name', 'Method', 'Endpoint', 'Query/Payload', 'Status', 'Time (ms)', 'Count'].join(','));
+  let anySlow = false;
+  for (const r of report.results || []) {
+    for (const a of r.slowApis || []) {
+      anySlow = true;
+      lines.push([esc(r.group), esc(r.subGroup || ''), esc(r.name), esc(a.name), esc(a.method), esc(a.endpoint), esc(a.payload || a.query || ''), esc(a.status), esc(typeof a.ms === 'number' ? a.ms : ''), esc(a.count || 1)].join(','));
+    }
+  }
+  if (!anySlow) lines.push(',,No slow APIs above threshold');
+
   // ---- Historical data (same role, across all past runs) — clearly separated ----
   if (history) {
     lines.push('');
@@ -112,6 +168,56 @@ function buildCsv(report, history = null) {
   }
 
   return '\uFEFF' + lines.join('\r\n'); // BOM so Excel opens UTF-8 cleanly
+}
+
+/** Filename-safe name for a performance export. */
+function perfExportName(report, ext) {
+  const role = report.cfg?.role ?? 'perf';
+  const dealer = report.cfg?.dealerName ? `${report.cfg.dealerName} - ` : '';
+  const stamp = (report.startedAt ?? '').replace(/\//g, '-').replace(':', '.');
+  return `API Performance - ${dealer}${role} - ${stamp || report.runId || 'run'}.${ext}`.replace(/[\\/:*?"<>|]/g, '_');
+}
+
+/** CSV of a performance report: one row per (report × filter × scope) with rep timings. */
+function buildPerfCsv(report) {
+  const esc = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const cfg = report.cfg || {}; const s = report.summary || {};
+  const lines = [];
+  lines.push(`API Performance Report - ${cfg.role ?? ''}`);
+  if (cfg.dealerName) lines.push(`Dealership,${esc(cfg.dealerName)}`);
+  lines.push(`Tenant,${esc(cfg.base)}`);
+  lines.push(`Started,${esc(report.startedAt)}`);
+  lines.push(`Finished,${esc(report.finishedAt)}`);
+  lines.push(`Filters,${esc((cfg.filters || []).join(' '))}`);
+  lines.push(`Scopes,${esc((cfg.scopes || []).join(' '))}`);
+  lines.push(`Repetitions,${esc(cfg.reps)}`);
+  lines.push(`Totals,OK ${s.ok_count || 0} / SLOW ${s.slow || 0} / INFO ${s.info || 0} / ERROR ${s.error || 0} of ${s.total || 0}`);
+  lines.push('');
+  lines.push(['#', 'Heading', 'Sub-Heading', 'Report', 'Filter', 'Scope', 'Date Range', 'Avg (s)', 'Individual (s)', 'Benchmark', 'Verdict', 'Note'].join(','));
+  (report.results || []).forEach((r, i) => {
+    const note = [r.fromNav ? 'timed from navigation' : '', r.dateFallback ? 'all-time fallback Jan 1 2015' : '', r.navError].filter(Boolean).join('; ');
+    lines.push([i + 1, esc(r.group), esc(r.subGroup || ''), esc(r.name), esc(r.filterLabel || r.filter), esc(r.scope), esc(r.dateRange || ''), esc(r.avgSec), esc((r.timingsSec || []).join(' ')), esc(r.benchmark), esc(r.verdict), esc(note)].join(','));
+  });
+
+  // All APIs (module-wise, captured on rep 1 of each config).
+  lines.push('');
+  lines.push('ALL APIS (per report × filter × scope — captured on first repetition)');
+  lines.push(['Heading', 'Report', 'Filter', 'Scope', 'API Name', 'Method', 'Endpoint', 'Query/Payload', 'Status', 'Time (ms)', 'Count'].join(','));
+  for (const r of report.results || []) {
+    for (const a of r.allApis || []) {
+      lines.push([esc(r.group), esc(r.name), esc(r.filterLabel || r.filter), esc(r.scope), esc(a.name), esc(a.method), esc(a.endpoint), esc(a.payload || a.query || ''), esc(a.status), esc(typeof a.ms === 'number' ? a.ms : ''), esc(a.count || 1)].join(','));
+    }
+  }
+  lines.push('');
+  lines.push('SLOW APIS (exceeding the per-API §2 threshold)');
+  lines.push(['Heading', 'Report', 'Filter', 'Scope', 'API Name', 'Method', 'Endpoint', 'Status', 'Time (ms)', 'Threshold (ms)'].join(','));
+  let anySlow = false;
+  for (const r of report.results || []) {
+    for (const a of r.slowApis || []) { anySlow = true; lines.push([esc(r.group), esc(r.name), esc(r.filterLabel || r.filter), esc(r.scope), esc(a.name), esc(a.method), esc(a.endpoint), esc(a.status), esc(typeof a.ms === 'number' ? a.ms : ''), esc(r.slowThresholdMs)].join(',')); }
+  }
+  if (!anySlow) lines.push(',,No slow APIs above threshold');
+
+  return '\uFEFF' + lines.join('\r\n');
 }
 
 /** Guard screenshot serving against path traversal — files must stay under artifacts/health. */
@@ -140,11 +246,47 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // --- settings: read (browser-safe, password never returned) ---
+  if (u.pathname === '/settings' && req.method === 'GET') {
+    const s = await publicSettings();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(s));
+    return;
+  }
+  // --- settings: update (Target URL / Username / Password) ---
+  if (u.pathname === '/settings' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', async () => {
+      let parsed = {};
+      try { parsed = JSON.parse(body || '{}'); } catch { parsed = {}; }
+      try {
+        const updated = await updateSettings({ base: parsed.base, username: parsed.username, password: parsed.password });
+        // Reflect the new target in the console so it's visible which dealer is now set.
+        console.log(`  >>> settings updated — TARGET URL: ${updated.base}  user: ${updated.username}  password: ${updated.passwordSet ? 'set' : '(from .env/none)'}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(updated));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(e.message) }));
+      }
+    });
+    return;
+  }
+
   // --- panel script ---
   if (u.pathname === '/panel.js') {
     const js = await readFile(PANEL_JS, 'utf8');
     res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(js);
+    return;
+  }
+
+  // --- configured target tenant (so the panel header can show it before a crawl) ---
+  if (u.pathname === '/target') {
+    const eff = await effectiveConfig();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ url: eff.base, running }));
     return;
   }
 
@@ -203,6 +345,135 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ stopping: true }));
     return;
   }
+
+  // ===================== PERFORMANCE TESTING (independent) =====================
+  // --- perf SSE stream ---
+  if (u.pathname === '/perf/events') {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.write('retry: 2000\n\n');
+    perfClients.add(res);
+    req.on('close', () => perfClients.delete(res));
+    return;
+  }
+
+  // --- start a performance run (one or more roles, in parallel) ---
+  if (u.pathname === '/perf/start' && req.method === 'POST') {
+    if (perfRunning) { res.writeHead(409, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'already running' })); return; }
+    const rolesParam = (u.searchParams.get('roles') || 'DEALER,AUTOGROUP').split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+    const filters = (u.searchParams.get('filters') || 'month').split(',').map((s) => s.trim()).filter(Boolean);
+    const scopes = (u.searchParams.get('scopes') || 'single').split(',').map((s) => s.trim()).filter(Boolean);
+    const reps = Number(u.searchParams.get('reps') || 3) === 1 ? 1 : 3;
+    perfRunning = true; perfStopRequested = false;
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ started: true, roles: rolesParam, filters, scopes, reps }));
+    perfBroadcast({ type: 'perf-batch-start', roles: rolesParam, filters, scopes, reps });
+    Promise.all(
+      rolesParam.map((role) =>
+        runPerf({ emit: perfBroadcast, role, filters, scopes, reps, shouldStop: () => perfStopRequested }).catch((err) =>
+          perfBroadcast({ role, type: 'perf-done', summary: { ok: false, reason: String(err.message) }, results: [] }),
+        ),
+      ),
+    ).then(() => perfBroadcast({ type: 'perf-batch-done', roles: rolesParam, stopped: perfStopRequested }))
+      .finally(() => { perfRunning = false; perfStopRequested = false; });
+    return;
+  }
+
+  // --- discovery-only (NO measurement): enumerate reports + date-filter support ---
+  if (u.pathname === '/perf/discover' && req.method === 'POST') {
+    if (perfRunning) { res.writeHead(409, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'already running' })); return; }
+    const rolesParam = (u.searchParams.get('roles') || 'DEALER,AUTOGROUP').split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+    perfRunning = true; perfStopRequested = false;
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ discovering: true, roles: rolesParam }));
+    perfBroadcast({ type: 'perf-discover-batch-start', roles: rolesParam });
+    (async () => {
+      const { discoverForPerf } = await import('../perf/crawler.mjs');
+      for (const role of rolesParam) {
+        if (perfStopRequested) break;
+        await discoverForPerf({ emit: perfBroadcast, role, shouldStop: () => perfStopRequested }).catch((err) => perfBroadcast({ role, type: 'perf-discover-done', ok: false, reason: String(err.message), reports: [] }));
+      }
+      perfBroadcast({ type: 'perf-discover-batch-done', roles: rolesParam, stopped: perfStopRequested });
+    })().finally(() => { perfRunning = false; perfStopRequested = false; });
+    return;
+  }
+
+  // --- stop a performance run ---
+  if (u.pathname === '/perf/stop' && req.method === 'POST') {
+    perfStopRequested = true;
+    perfBroadcast({ type: 'log', msg: 'Perf stop requested by user' });
+    res.writeHead(202, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ stopping: true }));
+    return;
+  }
+
+  // --- perf target info ---
+  if (u.pathname === '/perf/target') {
+    const eff = await effectiveConfig();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ url: eff.base, running: perfRunning }));
+    return;
+  }
+
+  // --- list saved performance reports, newest first ---
+  if (u.pathname === '/perf/reports') {
+    const { readdir, readFile: rf } = await import('node:fs/promises');
+    let dirs = [];
+    try { dirs = await readdir(PERF_ARTIFACTS, { withFileTypes: true }); } catch { dirs = []; }
+    const reports = [];
+    for (const d of dirs) {
+      if (!d.isDirectory()) continue;
+      try {
+        const meta = JSON.parse(await rf(path.join(PERF_ARTIFACTS, d.name, 'results.json'), 'utf8'));
+        reports.push({ runId: d.name, role: meta.cfg?.role ?? '-', base: meta.cfg?.base ?? '', dealerName: meta.cfg?.dealerName ?? '', summary: meta.summary ?? {}, when: meta.startedAt ?? d.name });
+      } catch { /* in progress */ }
+    }
+    reports.sort((a, b) => (a.runId < b.runId ? 1 : -1));
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(reports));
+    return;
+  }
+
+  // --- fetch one saved performance report ---
+  if (u.pathname === '/perf/report') {
+    const runId = u.searchParams.get('run') || '';
+    const safe = path.resolve(PERF_ARTIFACTS, runId, 'results.json');
+    if (!safe.startsWith(PERF_ARTIFACTS + path.sep)) { res.writeHead(403); res.end('forbidden'); return; }
+    try {
+      const body = await readFile(safe, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(body);
+    } catch { res.writeHead(404); res.end('not found'); }
+    return;
+  }
+
+  // --- export a performance report as Excel ---
+  if (u.pathname === '/perf/export.xlsx') {
+    const runId = u.searchParams.get('run') || '';
+    const safe = path.resolve(PERF_ARTIFACTS, runId, 'results.json');
+    if (!safe.startsWith(PERF_ARTIFACTS + path.sep)) { res.writeHead(403); res.end('forbidden'); return; }
+    try {
+      const report = JSON.parse(await readFile(safe, 'utf8'));
+      const { buildPerfWorkbook } = await import('../perf/excel.mjs');
+      const buf = await buildPerfWorkbook(report);
+      res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="${perfExportName(report, 'xlsx')}"`, 'Cache-Control': 'no-store' });
+      res.end(Buffer.from(buf));
+    } catch (e) { res.writeHead(500); res.end('export failed: ' + e.message); }
+    return;
+  }
+
+  // --- export a performance report as CSV ---
+  if (u.pathname === '/perf/export.csv') {
+    const runId = u.searchParams.get('run') || '';
+    const safe = path.resolve(PERF_ARTIFACTS, runId, 'results.json');
+    if (!safe.startsWith(PERF_ARTIFACTS + path.sep)) { res.writeHead(403); res.end('forbidden'); return; }
+    try {
+      const report = JSON.parse(await readFile(safe, 'utf8'));
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${perfExportName(report, 'csv')}"`, 'Cache-Control': 'no-store' });
+      res.end(buildPerfCsv(report));
+    } catch (e) { res.writeHead(500); res.end('export failed: ' + e.message); }
+    return;
+  }
+  // =================== END PERFORMANCE TESTING ===================
 
   // --- list saved crawl reports (one per role-run), newest first ---
   if (u.pathname === '/reports') {
@@ -348,7 +619,11 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
-  console.log(`\n  Dealership health dashboard: ${url}`);
+  console.log(`\n  ============================================================`);
+  console.log(`  TARGET DEALER : (resolving on login…)`);
+  console.log(`  TARGET URL    : ${TARGET_URL}`);
+  console.log(`  ============================================================`);
+  console.log(`  Dealership health dashboard: ${url}`);
   console.log(`  Open it in Chrome, then press "Start crawl".`);
-  console.log(`  (A Chrome window will open so you can watch — set KPI_HEADLESS=true to hide it.)\n`);
+  console.log(`  (A Chrome window opens so you can watch — set KPI_HEADLESS=true to hide it.)\n`);
 });
